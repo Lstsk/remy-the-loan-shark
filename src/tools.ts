@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { publicBaseUrl } from './env.ts'
 import {
   getCurrentExpense,
+  getMissingContactsForCurrent,
   getStoredState,
   resolveContact,
   saveContact,
@@ -146,11 +147,19 @@ export async function runRemyAgent(input: {
         },
       }),
       create_payment_requests: tool({
-        description: 'Create payment request messages after the payer confirms they want to send the current draft.',
+        description: 'Create payment request messages after the payer confirms they want to send the current draft. If contacts are missing, ask for contact cards instead.',
         inputSchema: z.object({}),
         execute: async () => {
           if (!state.currentDraft) {
             return { error: 'No current draft. Ask what they paid first.' }
+          }
+
+          const missingContacts = getMissingContactsForCurrent()
+          if (missingContacts.length > 0) {
+            return {
+              missingContacts,
+              message: `I need ${missingContacts.join(', ')}'s contact card once, then I can send requests.`,
+            }
           }
 
           const requests = createPaymentRequests({
@@ -284,6 +293,7 @@ export function getRemyState() {
     requests: state.requests,
     stored,
     currentExpense,
+    missingContacts: getMissingContactsForCurrent(),
   }
 }
 

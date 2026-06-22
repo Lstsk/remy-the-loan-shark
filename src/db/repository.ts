@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db, ensureDatabase } from './index.ts'
 import {
@@ -87,6 +87,7 @@ export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
       })
       .where(eq(contacts.id, existingAlias.contact.id))
       .run()
+    linkContactToOpenParticipants(existingAlias.contact.id, alias, ownerUserId)
     return db.select().from(contacts).where(eq(contacts.id, existingAlias.contact.id)).get()!
   }
 
@@ -123,6 +124,8 @@ export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
     }).onConflictDoNothing().run()
   }
 
+  linkContactToOpenParticipants(contact.id, alias, ownerUserId)
+  linkContactToOpenParticipants(contact.id, input.displayName, ownerUserId)
   return contact
 }
 
@@ -213,6 +216,32 @@ export function getCurrentExpense(ownerUserId = defaultOwnerUserId): SavedExpens
     .all()
 
   return { expense, participants }
+}
+
+export function getMissingContactsForCurrent(ownerUserId = defaultOwnerUserId): string[] {
+  const current = getCurrentExpense(ownerUserId)
+  if (!current) return []
+
+  return current.participants
+    .filter((participant) => !participant.contactId)
+    .map((participant) => participant.displayName)
+}
+
+function linkContactToOpenParticipants(contactId: string, alias: string, ownerUserId = defaultOwnerUserId): void {
+  const current = getCurrentExpense(ownerUserId)
+  if (!current) return
+
+  db.update(expenseParticipants)
+    .set({
+      contactId,
+      updatedAt: nowIso(),
+    })
+    .where(and(
+      eq(expenseParticipants.expenseId, current.expense.id),
+      eq(expenseParticipants.displayName, alias),
+      isNull(expenseParticipants.contactId),
+    ))
+    .run()
 }
 
 export function savePaymentRequestsForCurrent(requests: PaymentRequest[], ownerUserId = defaultOwnerUserId) {

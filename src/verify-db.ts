@@ -3,7 +3,7 @@ import { rmSync } from 'node:fs'
 rmSync('data', { recursive: true, force: true })
 
 const { createPaymentRequests, expenseDraftSchema, getRemyState, rememberDraft } = await import('./tools.ts')
-const { resolveContact, saveContact } = await import('./db/repository.ts')
+const { getMissingContactsForCurrent, resolveContact, saveContact } = await import('./db/repository.ts')
 
 const contact = saveContact({
   displayName: 'Alex Chen',
@@ -27,6 +27,19 @@ const draft = expenseDraftSchema.parse({
 })
 
 rememberDraft(draft)
+const missingBefore = getMissingContactsForCurrent()
+if (!missingBefore.includes('Brian')) throw new Error(`Expected Brian missing, got ${missingBefore.join(', ')}`)
+
+saveContact({
+  displayName: 'Brian Lee',
+  alias: 'Brian',
+  phone: '+14155550124',
+  source: 'verify',
+})
+
+const missingAfter = getMissingContactsForCurrent()
+if (missingAfter.length !== 0) throw new Error(`Expected all contacts resolved, got ${missingAfter.join(', ')}`)
+
 const requests = createPaymentRequests({ draft, baseUrl: 'https://remy.test' })
 if (requests.length !== 2) throw new Error(`Expected 2 requests, got ${requests.length}`)
 

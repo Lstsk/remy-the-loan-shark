@@ -2,6 +2,7 @@ import { Spectrum } from 'spectrum-ts'
 import { imessage } from 'spectrum-ts/providers/imessage'
 import { loadEnv, publicBaseUrl, requiredEnv } from './env.ts'
 import { runRemyAgent } from './tools.ts'
+import { saveContact } from './db/repository.ts'
 
 function isDroppedUpstream(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
@@ -21,7 +22,16 @@ type MessageSpace = {
 
 type InboundMessage = {
   read(): Promise<void>
-  content: { type: string; text?: string }
+}
+
+type ContactContent = {
+  type: 'contact'
+  name?: {
+    formatted?: string
+    first?: string
+    last?: string
+  }
+  phones?: Array<{ value: string; type?: string }>
 }
 
 async function safeRead(message: InboundMessage): Promise<void> {
@@ -61,6 +71,16 @@ async function safeSend(space: MessageSpace, content: string): Promise<void> {
   }
 }
 
+function displayNameFromContact(content: ContactContent): string | null {
+  const formatted = content.name?.formatted?.trim()
+  if (formatted) return formatted
+
+  const parts = [content.name?.first, content.name?.last]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+  return parts.length > 0 ? parts.join(' ') : null
+}
+
 export async function startAgent(): Promise<void> {
   loadEnv()
 
@@ -78,13 +98,39 @@ export async function startAgent(): Promise<void> {
   console.log('iMessage provider enabled through Spectrum.')
 
   for await (const [space, message] of app.messages) {
-    if (message.content.type !== 'text') continue
-    const text = message.content.text
-
     try {
       await safeRead(message)
       await safeResponding(space, async () => {
+        if (message.content.type === 'contact') {
+          const contactContent = message.content as ContactContent
+          const displayName = displayNameFromContact(contactContent)
+          const phone = contactContent.phones?.find((candidate) => candidate.type === 'mobile')?.value
+            ?? contactContent.phones?.[0]?.value
+
+          if (!displayName && !phone) {
+            await safeSend(space, 'I got the contact card, but I could not read the name or number.')
+            return
+          }
+
+          const contact = saveContact({
+            displayName: displayName ?? phone!,
+            alias: displayName?.split(/\s+/)[0] ?? phone,
+            phone,
+            imessageHandle: phone,
+            source: 'contact-card',
+          })
+
+          await safeSend(space, `Got ${contact.displayName}. I’ll remember them for next time.`)
+          return
+        }
+
+        if (message.content.type !== 'text') {
+          await safeSend(space, 'Send me text or a contact card for now.')
+          return
+        }
+
         try {
+          const text = message.content.text ?? ''
           const reply = await runRemyAgent({ text, payerName: 'Carson', baseUrl: publicBaseUrl() })
           await safeSend(space, reply)
         } catch (error) {
