@@ -158,7 +158,7 @@ export async function runRemyAgent(input: {
           if (missingContacts.length > 0) {
             return {
               missingContacts,
-              message: `I need ${missingContacts.join(', ')}'s contact card once, then I can send requests.`,
+              message: `I can’t see your iPhone Contacts yet. Share ${missingContacts.join(', ')}’s contact card here once, then I can send the requests.`,
             }
           }
 
@@ -217,6 +217,7 @@ export async function runRemyAgent(input: {
       '- Use create_payment_requests after they confirm sending a draft.',
       '- Use resolve_contact when a name may need a saved phone/iMessage handle.',
       '- Use save_contact when the user gives contact details.',
+      'If contact info is missing, never say the user does not have contacts. Say Remy cannot see their iPhone Contacts yet and ask them to share the contact card in this chat once.',
       'Ask one casual follow-up if an expense is missing amount or people.',
       'For greetings or random chat, answer normally as Remy and invite them to text what they paid.',
       `Default payer name: ${payerName}.`,
