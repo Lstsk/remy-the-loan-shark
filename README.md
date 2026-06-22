@@ -1,0 +1,34 @@
+# Remy
+
+Text Remy what you paid for. Remy gets you paid back.
+
+This reset follows the Spectrum docs shape:
+
+- `src/agent.ts` runs the iMessage agent with `Spectrum`, `imessage.config()`, `app.messages`, and `space.responding(...)`.
+- `src/mcp.ts` exposes Remy tools over MCP Streamable HTTP using Hono.
+- `src/tools.ts` holds the shared TypeScript tool implementations used by both the agent and MCP server.
+
+## Run
+
+```bash
+npm install
+npm start
+```
+
+The agent reads credentials from `.env`.
+
+## Test
+
+```bash
+npm run verify
+```
+
+## iMessage
+
+Text the Spectrum line from Photon. The agent handles natural messages like:
+
+```text
+paid $86 dinner with Alex Brian Sam
+```
+
+It will draft the split, then send short iMessage-native replies while the heavier tool contract lives in MCP.
