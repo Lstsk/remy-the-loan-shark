@@ -21,6 +21,8 @@ The agent reads credentials from `.env`.
 
 ```bash
 npm run verify
+npm run verify:db
+npm run verify:deepseek
 ```
 
 ## iMessage
@@ -32,3 +34,22 @@ paid $86 dinner with Alex Brian Sam
 ```
 
 It will draft the split, then send short iMessage-native replies while the heavier tool contract lives in MCP.
+
+## Native Contacts
+
+Remy also has an iMessage extension scaffold in `ios/`. This is how Remy can match “James” or “Boxiang” from the user’s iPhone Contacts with permission, instead of pretending the backend can see local contacts.
+
+For phone testing:
+
+```bash
+npm start
+ngrok http 8787
+```
+
+Set `REMY_API_BASE_URL` in `ios/project.yml` to the HTTPS ngrok URL, then regenerate:
+
+```bash
+npm run ios:generate
+```
+
+Open `ios/Remy.xcodeproj` in Xcode, set your development team, run the host app on your phone, then open Remy from the Messages app drawer. The extension uses iOS Contacts permission and Contact Access Button flow so the user can grant exactly the missing contact.

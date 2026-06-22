@@ -13,6 +13,16 @@ import {
 } from './tools.ts'
 import { resolveContact, saveContact } from './db/repository.ts'
 
+const saveContactBodySchema = z.object({
+  displayName: z.string(),
+  alias: z.string().optional(),
+  phone: z.string().optional(),
+  imessageHandle: z.string().optional(),
+  preferredPayoutMethod: z.string().optional(),
+  payoutHandle: z.string().optional(),
+  source: z.string().optional(),
+})
+
 export function createRemyMcpServer(): McpServer {
   const server = new McpServer({
     name: 'remy',
@@ -135,6 +145,29 @@ export function createMcpApp(): Hono {
   const app = new Hono()
 
   app.get('/health', (c) => c.json({ ok: true, service: 'remy-mcp' }))
+
+  app.get('/contacts/resolve', (c) => {
+    const alias = c.req.query('alias')
+    if (!alias) return c.json({ error: 'alias is required' }, 400)
+
+    return c.json({ result: resolveContact(alias) })
+  })
+
+  app.post('/contacts', async (c) => {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = saveContactBodySchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid contact payload', issues: parsed.error.issues }, 400)
+    }
+
+    const contact = saveContact({
+      ...parsed.data,
+      source: parsed.data.source ?? 'ios-extension',
+    })
+    return c.json({ contact })
+  })
+
+  app.get('/state', (c) => c.json(getRemyState()))
 
   app.post('/mcp', async (c) => {
     const server = createRemyMcpServer()

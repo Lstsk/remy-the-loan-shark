@@ -23,6 +23,24 @@ assert(formatDraft(draft).includes('Reply yes'), 'draft reply should ask for con
 
 const listener = localServe(createMcpApp().fetch)
 try {
+  const contactResponse = await fetch(`${listener.url}/contacts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      displayName: 'James Lee',
+      alias: 'James',
+      phone: '+14155550123',
+      imessageHandle: '+14155550123',
+      source: 'verify',
+    }),
+  })
+  assert(contactResponse.ok, 'expected contact save endpoint to succeed')
+
+  const resolveResponse = await fetch(`${listener.url}/contacts/resolve?alias=James`)
+  assert(resolveResponse.ok, 'expected contact resolve endpoint to succeed')
+  const resolved = await resolveResponse.json() as { result?: { contact?: { displayName?: string } } }
+  assert(resolved.result?.contact?.displayName === 'James Lee', 'expected saved contact to resolve by alias')
+
   const client = new Client({ name: 'remy-verify', version: '0.1.0' })
   const transport = new StreamableHTTPClientTransport(new URL(`${listener.url}/mcp`))
   await client.connect(transport)

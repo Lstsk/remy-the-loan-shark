@@ -91,6 +91,47 @@ export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
     return db.select().from(contacts).where(eq(contacts.id, existingAlias.contact.id)).get()!
   }
 
+  const existingPhone = input.phone
+    ? db
+        .select()
+        .from(contacts)
+        .where(and(
+          eq(contacts.ownerUserId, ownerUserId),
+          eq(contacts.phone, input.phone),
+        ))
+        .get()
+    : null
+
+  if (existingPhone) {
+    db.update(contacts)
+      .set({
+        displayName: input.displayName,
+        imessageHandle: input.imessageHandle ?? existingPhone.imessageHandle,
+        preferredPayoutMethod: input.preferredPayoutMethod ?? existingPhone.preferredPayoutMethod,
+        payoutHandle: input.payoutHandle ?? existingPhone.payoutHandle,
+        source: input.source ?? existingPhone.source,
+        updatedAt: timestamp,
+      })
+      .where(eq(contacts.id, existingPhone.id))
+      .run()
+
+    addContactAlias({
+      ownerUserId,
+      contactId: existingPhone.id,
+      alias,
+      timestamp,
+    })
+    addContactAlias({
+      ownerUserId,
+      contactId: existingPhone.id,
+      alias: input.displayName,
+      timestamp,
+    })
+    linkContactToOpenParticipants(existingPhone.id, alias, ownerUserId)
+    linkContactToOpenParticipants(existingPhone.id, input.displayName, ownerUserId)
+    return db.select().from(contacts).where(eq(contacts.id, existingPhone.id)).get()!
+  }
+
   const contact = {
     id: randomUUID(),
     ownerUserId,
@@ -104,29 +145,36 @@ export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
     updatedAt: timestamp,
   }
   db.insert(contacts).values(contact).run()
-  db.insert(contactAliases).values({
-    id: randomUUID(),
-    ownerUserId,
-    contactId: contact.id,
-    alias,
-    normalizedAlias,
-    createdAt: timestamp,
-  }).run()
+  addContactAlias({ ownerUserId, contactId: contact.id, alias, timestamp })
 
   if (normalizeAlias(input.displayName) !== normalizedAlias) {
-    db.insert(contactAliases).values({
-      id: randomUUID(),
+    addContactAlias({
       ownerUserId,
       contactId: contact.id,
       alias: input.displayName,
-      normalizedAlias: normalizeAlias(input.displayName),
-      createdAt: timestamp,
-    }).onConflictDoNothing().run()
+      timestamp,
+    })
   }
 
   linkContactToOpenParticipants(contact.id, alias, ownerUserId)
   linkContactToOpenParticipants(contact.id, input.displayName, ownerUserId)
   return contact
+}
+
+function addContactAlias(input: {
+  ownerUserId: string
+  contactId: string
+  alias: string
+  timestamp: string
+}): void {
+  db.insert(contactAliases).values({
+    id: randomUUID(),
+    ownerUserId: input.ownerUserId,
+    contactId: input.contactId,
+    alias: input.alias,
+    normalizedAlias: normalizeAlias(input.alias),
+    createdAt: input.timestamp,
+  }).onConflictDoNothing().run()
 }
 
 export function resolveContact(alias: string, ownerUserId = defaultOwnerUserId) {
