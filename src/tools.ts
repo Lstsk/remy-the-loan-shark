@@ -129,6 +129,18 @@ export async function runRemyAgent(input: {
 }): Promise<string> {
   const payerName = input.payerName ?? 'Carson'
   const wantsLocalTestSend = isLocalTestSend(input.text)
+  if (wantsLocalTestSend) {
+    const draft = state.currentDraft ?? draftFromStoredExpense()
+    if (!draft) {
+      return 'Send me a split first, then say “test send it here.”'
+    }
+
+    return formatTestRequests(createPaymentRequests({
+      draft,
+      baseUrl: input.baseUrl ?? publicBaseUrl(),
+    }))
+  }
+
   const { text } = await generateText({
     model: model(),
     stopWhen: stepCountIs(4),
@@ -236,15 +248,29 @@ export function isLocalTestSend(text: string): boolean {
 
 export function formatTestRequests(requests: PaymentRequest[]): string {
   return [
-    'Test mode: sending the cards here.',
+    'Test cards ready.',
     '',
     ...requests.map((request) => [
-      `${request.friendName} owes $${request.amount.toFixed(2)}`,
+      `${request.friendName} · $${request.amount.toFixed(2)}`,
       request.url,
     ].join('\n')),
     '',
-    'In production, I’ll send each person their own card.',
+    'In production, each person gets only their own card.',
   ].join('\n')
+}
+
+function draftFromStoredExpense(): ExpenseDraft | null {
+  const current = getCurrentExpense()
+  if (!current || current.participants.length === 0) return null
+
+  return expenseDraftSchema.parse({
+    title: current.expense.title,
+    payerName: current.expense.payerName,
+    total: current.expense.total,
+    people: current.participants.map((participant) => participant.displayName),
+    splitMode: current.expense.splitMode,
+    confidence: current.expense.confidence,
+  })
 }
 
 function parseJsonObject(text: string): unknown {

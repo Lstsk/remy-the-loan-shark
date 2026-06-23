@@ -21,7 +21,7 @@ const requests = createPaymentRequests({ draft, baseUrl: 'https://remy.test' })
 assert(requests.length === 3, 'expected three payment requests')
 assert(formatDraft(draft).includes('Reply yes'), 'draft reply should ask for confirmation')
 assert(isLocalTestSend('test send it here'), 'test send phrase should enable local test mode')
-assert(formatTestRequests(requests).includes('Test mode'), 'test requests should say test mode')
+assert(formatTestRequests(requests).includes('Test cards ready'), 'test requests should say test cards are ready')
 assert(formatTestRequests(requests).includes('https://remy.test/pay'), 'test requests should include pay links')
 
 const listener = localServe(createMcpApp().fetch)
