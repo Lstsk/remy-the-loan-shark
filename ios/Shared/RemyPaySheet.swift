@@ -3,6 +3,8 @@ import SwiftUI
 struct RemyPaySheet: View {
     let route: PaymentRoute
     @State private var status: Status = .unpaid
+    @State private var isUpdating = false
+    @State private var updateError: String?
 
     enum Status: String {
         case unpaid = "Unpaid"
@@ -20,6 +22,11 @@ struct RemyPaySheet: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
+        }
+        .onChange(of: route) { _, _ in
+            status = .unpaid
+            updateError = nil
+            isUpdating = false
         }
     }
 
@@ -88,6 +95,13 @@ struct RemyPaySheet: View {
             VStack(spacing: 12) {
                 infoRows
                 paymentActions
+                if let updateError {
+                    Text(updateError)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
                 stateActions
             }
             .padding(14)
@@ -152,8 +166,8 @@ struct RemyPaySheet: View {
     private var stateActions: some View {
         VStack(spacing: 10) {
             Button {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    status = .paid
+                Task {
+                    await updateStatus(.paid)
                 }
             } label: {
                 Label("I paid", systemImage: "checkmark.circle.fill")
@@ -161,10 +175,11 @@ struct RemyPaySheet: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .disabled(isUpdating)
 
             Button(role: .destructive) {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    status = .disputed
+                Task {
+                    await updateStatus(.disputed)
                 }
             } label: {
                 Label("This amount is wrong", systemImage: "exclamationmark.bubble.fill")
@@ -172,7 +187,71 @@ struct RemyPaySheet: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .disabled(isUpdating)
         }
+        .overlay {
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(.regularMaterial, in: Capsule())
+            }
+        }
+    }
+
+    @MainActor
+    private func updateStatus(_ nextStatus: Status) async {
+        updateError = nil
+
+        guard let requestId = route.requestId, !requestId.isEmpty else {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                status = nextStatus
+            }
+            return
+        }
+
+        isUpdating = true
+        defer { isUpdating = false }
+
+        do {
+            try await postStatus(nextStatus, requestId: requestId)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                status = nextStatus
+            }
+        } catch {
+            updateError = "Couldn’t update Remy yet. Try again."
+        }
+    }
+
+    private func postStatus(_ nextStatus: Status, requestId: String) async throws {
+        let path = nextStatus == .paid ? "/pay/paid" : "/pay/dispute"
+        guard let url = URL(string: "https://trymomento.app\(path)") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let amount = NSDecimalNumber(decimal: route.amount).stringValue
+        let fields = [
+            "requestId": requestId,
+            "friendName": route.friendName,
+            "amount": amount,
+        ]
+        request.httpBody = fields
+            .map { key, value in
+                "\(urlEncode(key))=\(urlEncode(value))"
+            }
+            .joined(separator: "&")
+            .data(using: .utf8)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    private func urlEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
     }
 }
 
