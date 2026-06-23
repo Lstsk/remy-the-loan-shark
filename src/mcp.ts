@@ -136,6 +136,28 @@ export function createMcpApp(): Hono {
 
   app.get('/health', (c) => c.json({ ok: true, service: 'remy-mcp' }))
 
+  app.get('/.well-known/apple-app-site-association', (c) => {
+    const appIdPrefix = process.env.APPLE_APP_ID_PREFIX ?? 'TEAMID'
+    const appBundleId = process.env.IOS_APP_BUNDLE_ID ?? 'com.lstsk.remy'
+    const appClipBundleId = process.env.IOS_APP_CLIP_BUNDLE_ID ?? 'com.lstsk.remy.Clip'
+
+    return c.json({
+      applinks: {
+        apps: [],
+        details: [{
+          appIDs: [`${appIdPrefix}.${appBundleId}`, `${appIdPrefix}.${appClipBundleId}`],
+          components: [{
+            '/': '/pay*',
+            comment: 'Open Remy pay requests in the installed app or App Clip.',
+          }],
+        }],
+      },
+      appclips: {
+        apps: [`${appIdPrefix}.${appClipBundleId}`],
+      },
+    })
+  })
+
   app.get('/pay', (c) => {
     const friend = c.req.query('friend') ?? undefined
     const amount = parseAmount(c.req.query('amount'))

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "verify:db": "tsx src/verify-db.ts",
     "verify:deepseek": "tsx src/verify-deepseek.ts",
-    "verify": "npm run typecheck && tsx src/verify.ts"
+    "verify": "npm run typecheck && tsx src/verify.ts",
+    "ios:generate": "cd ios && xcodegen generate"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.39",

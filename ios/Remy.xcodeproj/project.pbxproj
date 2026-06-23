@@ -1,0 +1,400 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5247DC819FB516385C7B5B64 /* RemyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041364393A0E6DEA7D8573B4 /* RemyApp.swift */; };
+		5651621FFD3A42385854ED4F /* RemyAppClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FEBAB64CB0FF2E361703940 /* RemyAppClip.swift */; };
+		730C0B43FE9938BF6AAAB342 /* RemyPaySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CA3535BF0D635DED78FF2E /* RemyPaySheet.swift */; };
+		9DE6FCF92F6225AD70DAEEC3 /* RemyPaySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CA3535BF0D635DED78FF2E /* RemyPaySheet.swift */; };
+		D7A4DC6C5F43F7D937E4EEBB /* PaymentRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47C7D7A738CC15877CF75FF2 /* PaymentRoute.swift */; };
+		F2A6817E579296105DFAE8BD /* PaymentRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47C7D7A738CC15877CF75FF2 /* PaymentRoute.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		041364393A0E6DEA7D8573B4 /* RemyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemyApp.swift; sourceTree = "<group>"; };
+		2BA2022201A3D5B3BD462AC9 /* RemyApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemyApp.entitlements; sourceTree = "<group>"; };
+		47C7D7A738CC15877CF75FF2 /* PaymentRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentRoute.swift; sourceTree = "<group>"; };
+		5F1BA45D608D57CAF260877C /* RemyAppClip.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemyAppClip.entitlements; sourceTree = "<group>"; };
+		6308A0083226FD45EFB07565 /* RemyAppClip.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemyAppClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		77FE9A62516722C96B12C0B8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8FEBAB64CB0FF2E361703940 /* RemyAppClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemyAppClip.swift; sourceTree = "<group>"; };
+		9D5E2AA685CB00BFBAAEB886 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		BC89E2885FA72D6E8AE860DE /* RemyApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemyApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F5CA3535BF0D635DED78FF2E /* RemyPaySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemyPaySheet.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		A1C96594F078E6B007F0D30D /* RemyApp */ = {
+			isa = PBXGroup;
+			children = (
+				77FE9A62516722C96B12C0B8 /* Info.plist */,
+				2BA2022201A3D5B3BD462AC9 /* RemyApp.entitlements */,
+				041364393A0E6DEA7D8573B4 /* RemyApp.swift */,
+			);
+			path = RemyApp;
+			sourceTree = "<group>";
+		};
+		D61F60160D470BBAF7AFF246 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BC89E2885FA72D6E8AE860DE /* RemyApp.app */,
+				6308A0083226FD45EFB07565 /* RemyAppClip.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DAB65D3A493226B7F17329AA /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				47C7D7A738CC15877CF75FF2 /* PaymentRoute.swift */,
+				F5CA3535BF0D635DED78FF2E /* RemyPaySheet.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		E6799A47832010A283A1F0B9 = {
+			isa = PBXGroup;
+			children = (
+				A1C96594F078E6B007F0D30D /* RemyApp */,
+				ECD81E13B5C1A42CEA4234D3 /* RemyAppClip */,
+				DAB65D3A493226B7F17329AA /* Shared */,
+				D61F60160D470BBAF7AFF246 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		ECD81E13B5C1A42CEA4234D3 /* RemyAppClip */ = {
+			isa = PBXGroup;
+			children = (
+				9D5E2AA685CB00BFBAAEB886 /* Info.plist */,
+				5F1BA45D608D57CAF260877C /* RemyAppClip.entitlements */,
+				8FEBAB64CB0FF2E361703940 /* RemyAppClip.swift */,
+			);
+			path = RemyAppClip;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		87B5F51B71354ED30DB0B979 /* RemyAppClip */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8571A3073AACE8CAA1D417E5 /* Build configuration list for PBXNativeTarget "RemyAppClip" */;
+			buildPhases = (
+				0B4904A276B6C7CE906A31F1 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RemyAppClip;
+			packageProductDependencies = (
+			);
+			productName = RemyAppClip;
+			productReference = 6308A0083226FD45EFB07565 /* RemyAppClip.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A88614E69752C93295164A64 /* RemyApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 09BE676B12E7D620B1ED297C /* Build configuration list for PBXNativeTarget "RemyApp" */;
+			buildPhases = (
+				B819217C7806CAA045CC20A6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RemyApp;
+			packageProductDependencies = (
+			);
+			productName = RemyApp;
+			productReference = BC89E2885FA72D6E8AE860DE /* RemyApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4C1C0EA7FC3B184501B87418 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					87B5F51B71354ED30DB0B979 = {
+						DevelopmentTeam = "";
+					};
+					A88614E69752C93295164A64 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 82C1A18B14CA95F2D73F017E /* Build configuration list for PBXProject "Remy" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E6799A47832010A283A1F0B9;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D61F60160D470BBAF7AFF246 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A88614E69752C93295164A64 /* RemyApp */,
+				87B5F51B71354ED30DB0B979 /* RemyAppClip */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0B4904A276B6C7CE906A31F1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F2A6817E579296105DFAE8BD /* PaymentRoute.swift in Sources */,
+				5651621FFD3A42385854ED4F /* RemyAppClip.swift in Sources */,
+				730C0B43FE9938BF6AAAB342 /* RemyPaySheet.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B819217C7806CAA045CC20A6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D7A4DC6C5F43F7D937E4EEBB /* PaymentRoute.swift in Sources */,
+				5247DC819FB516385C7B5B64 /* RemyApp.swift in Sources */,
+				9DE6FCF92F6225AD70DAEEC3 /* RemyPaySheet.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0D4F6001D5A5EFAB1376DFCF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RemyApp/RemyApp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = RemyApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lstsk.remy;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		4A1A9D8A1849A8A4BFBC990E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RemyApp/RemyApp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = RemyApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lstsk.remy;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		680C8632AFCF61DA7A6A6A70 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RemyAppClip/RemyAppClip.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = RemyAppClip/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lstsk.remy.Clip;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C4D05449F70D67A9DE04AC82 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		D2EB6A78F8B244E8A1F22809 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RemyAppClip/RemyAppClip.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = RemyAppClip/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lstsk.remy.Clip;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EC393E9666CEF92124583A32 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		09BE676B12E7D620B1ED297C /* Build configuration list for PBXNativeTarget "RemyApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0D4F6001D5A5EFAB1376DFCF /* Debug */,
+				4A1A9D8A1849A8A4BFBC990E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		82C1A18B14CA95F2D73F017E /* Build configuration list for PBXProject "Remy" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EC393E9666CEF92124583A32 /* Debug */,
+				C4D05449F70D67A9DE04AC82 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8571A3073AACE8CAA1D417E5 /* Build configuration list for PBXNativeTarget "RemyAppClip" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				680C8632AFCF61DA7A6A6A70 /* Debug */,
+				D2EB6A78F8B244E8A1F22809 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 4C1C0EA7FC3B184501B87418 /* Project object */;
+}

@@ -1,0 +1,43 @@
+# Remy App Clip
+
+This is the native path for Remy payment links.
+
+Goal:
+
+```text
+https://YOUR_DOMAIN/pay?friend=alex&amount=28.67&title=Dinner
+```
+
+- opens the Remy App Clip if available
+- opens the full Remy app if installed
+- falls back to the web `/pay` sheet otherwise
+
+## Setup
+
+1. Replace `YOUR_DOMAIN_HERE` in `project.yml`.
+2. Set `DEVELOPMENT_TEAM` in `project.yml`.
+3. Set these backend env vars for the Apple association file:
+
+```bash
+APPLE_APP_ID_PREFIX=YOUR_TEAM_ID
+IOS_APP_BUNDLE_ID=com.lstsk.remy
+IOS_APP_CLIP_BUNDLE_ID=com.lstsk.remy.Clip
+```
+
+4. Serve the backend from real HTTPS on that domain.
+5. Confirm this works:
+
+```bash
+curl https://YOUR_DOMAIN/.well-known/apple-app-site-association
+```
+
+6. Run:
+
+```bash
+npm run ios:generate
+open ios/Remy.xcodeproj
+```
+
+7. In Apple Developer / App Store Connect, configure the App Clip experience for `/pay`.
+
+Without the Apple domain + bundle configuration, links will keep opening in the browser.
