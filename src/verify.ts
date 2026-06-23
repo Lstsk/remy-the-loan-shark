@@ -45,12 +45,6 @@ try {
   assert(payHtml.includes('Remy payment request'), 'pay sheet should include accessible label')
   assert(payHtml.includes('Venmo'), 'pay sheet should include payment actions')
 
-  const associationResponse = await fetch(`${listener.url}/.well-known/apple-app-site-association`)
-  assert(associationResponse.ok, 'apple app site association should render')
-  const association = await associationResponse.json() as { applinks?: unknown; appclips?: { apps?: string[] } }
-  assert(Boolean(association.applinks), 'association should include applinks')
-  assert(Boolean(association.appclips?.apps?.[0]), 'association should include appclips')
-
   console.log('PASS clean Remy Spectrum/MCP setup verified.')
 } finally {
   await listener.close()

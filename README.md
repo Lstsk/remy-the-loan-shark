@@ -43,9 +43,6 @@ Required settings:
 PORT=8787
 HOST=0.0.0.0
 PUBLIC_APP_URL=https://trymomento.app
-APPLE_APP_ID_PREFIX=QCW9XJC54W
-IOS_APP_BUNDLE_ID=com.lstsk.remy
-IOS_APP_CLIP_BUNDLE_ID=com.lstsk.remy.Clip
 REMY_DATABASE_URL=/app/data/remy.sqlite
 PROJECT_ID=...
 PROJECT_SECRET=...
@@ -63,6 +60,5 @@ Point `trymomento.app` DNS to the Coolify app, then verify:
 
 ```bash
 curl https://trymomento.app/health
-curl https://trymomento.app/.well-known/apple-app-site-association
 curl "https://trymomento.app/pay?friend=alex&amount=28.67&title=Dinner"
 ```
