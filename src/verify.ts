@@ -35,6 +35,13 @@ try {
   assert(toolNames.includes('get_remy_state'), 'missing get_remy_state')
 
   await client.close()
+
+  const payResponse = await fetch(`${listener.url}/pay?friend=alex&amount=28.67&title=Dinner`)
+  assert(payResponse.ok, 'pay sheet should render')
+  const payHtml = await payResponse.text()
+  assert(payHtml.includes('Remy payment request'), 'pay sheet should include accessible label')
+  assert(payHtml.includes('Venmo'), 'pay sheet should include payment actions')
+
   console.log('PASS clean Remy Spectrum/MCP setup verified.')
 } finally {
   await listener.close()

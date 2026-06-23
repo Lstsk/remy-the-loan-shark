@@ -284,6 +284,74 @@ export function savePaymentRequestsForCurrent(requests: PaymentRequest[], ownerU
   return values
 }
 
+export function findPaymentRequest(input: {
+  friendName?: string
+  title?: string
+  amount?: number
+  ownerUserId?: string
+}) {
+  const ownerUserId = input.ownerUserId ?? defaultOwnerUserId
+  const current = getCurrentExpense(ownerUserId)
+  if (!current) return null
+
+  const allRequests = db
+    .select()
+    .from(paymentRequests)
+    .where(eq(paymentRequests.expenseId, current.expense.id))
+    .all()
+
+  const normalizedFriend = input.friendName ? normalizeAlias(input.friendName) : null
+  const request = allRequests.find((candidate) => {
+    if (normalizedFriend && normalizeAlias(candidate.friendName) !== normalizedFriend) return false
+    if (input.amount !== undefined && Math.abs(candidate.amount - input.amount) > 0.01) return false
+    return true
+  }) ?? allRequests[0] ?? null
+
+  if (!request) return null
+  const participant = current.participants.find((candidate) => candidate.id === request.participantId) ?? null
+
+  return {
+    expense: current.expense,
+    participant,
+    request,
+    participants: current.participants,
+  }
+}
+
+export function updatePaymentRequestStatus(input: {
+  friendName: string
+  status: 'paid' | 'disputed' | 'partially_paid' | 'unpaid'
+  amount?: number
+  ownerUserId?: string
+}) {
+  const current = getCurrentExpense(input.ownerUserId ?? defaultOwnerUserId)
+  if (!current) return null
+
+  const request = findPaymentRequest({
+    friendName: input.friendName,
+    amount: input.amount,
+    ownerUserId: input.ownerUserId,
+  })
+  if (!request) return null
+
+  const timestamp = nowIso()
+  db.update(paymentRequests)
+    .set({ status: input.status, updatedAt: timestamp })
+    .where(eq(paymentRequests.id, request.request.id))
+    .run()
+
+  db.update(expenseParticipants)
+    .set({ status: input.status, updatedAt: timestamp })
+    .where(eq(expenseParticipants.id, request.request.participantId))
+    .run()
+
+  return findPaymentRequest({
+    friendName: input.friendName,
+    amount: input.amount,
+    ownerUserId: input.ownerUserId,
+  })
+}
+
 export function getStoredState(ownerUserId = defaultOwnerUserId) {
   ensureDefaultUser()
   const current = getCurrentExpense(ownerUserId)
