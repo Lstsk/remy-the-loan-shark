@@ -4,8 +4,8 @@
 <dict>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:YOUR_DOMAIN_HERE</string>
-		<string>appclips:YOUR_DOMAIN_HERE</string>
+		<string>applinks:trymomento.app</string>
+		<string>appclips:trymomento.app</string>
 	</array>
 </dict>
 </plist>

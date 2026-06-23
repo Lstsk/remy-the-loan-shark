@@ -23,8 +23,8 @@ targets:
       path: RemyApp/RemyApp.entitlements
       properties:
         com.apple.developer.associated-domains:
-          - applinks:YOUR_DOMAIN_HERE
-          - appclips:YOUR_DOMAIN_HERE
+          - applinks:trymomento.app
+          - appclips:trymomento.app
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lstsk.remy
@@ -46,8 +46,8 @@ targets:
       path: RemyAppClip/RemyAppClip.entitlements
       properties:
         com.apple.developer.associated-domains:
-          - applinks:YOUR_DOMAIN_HERE
-          - appclips:YOUR_DOMAIN_HERE
+          - applinks:trymomento.app
+          - appclips:trymomento.app
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lstsk.remy.Clip

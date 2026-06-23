@@ -5,7 +5,7 @@ This is the native path for Remy payment links.
 Goal:
 
 ```text
-https://YOUR_DOMAIN/pay?friend=alex&amount=28.67&title=Dinner
+https://trymomento.app/pay?friend=alex&amount=28.67&title=Dinner
 ```
 
 - opens the Remy App Clip if available
@@ -14,7 +14,7 @@ https://YOUR_DOMAIN/pay?friend=alex&amount=28.67&title=Dinner
 
 ## Setup
 
-1. Replace `YOUR_DOMAIN_HERE` in `project.yml`.
+1. Confirm `trymomento.app` is the Associated Domain in `project.yml`.
 2. Confirm `DEVELOPMENT_TEAM` in `project.yml` is `QCW9XJC54W`.
 3. Set these backend env vars for the Apple association file:
 
@@ -22,13 +22,14 @@ https://YOUR_DOMAIN/pay?friend=alex&amount=28.67&title=Dinner
 APPLE_APP_ID_PREFIX=QCW9XJC54W
 IOS_APP_BUNDLE_ID=com.lstsk.remy
 IOS_APP_CLIP_BUNDLE_ID=com.lstsk.remy.Clip
+PUBLIC_APP_URL=https://trymomento.app
 ```
 
 4. Serve the backend from real HTTPS on that domain.
 5. Confirm this works:
 
 ```bash
-curl https://YOUR_DOMAIN/.well-known/apple-app-site-association
+curl https://trymomento.app/.well-known/apple-app-site-association
 ```
 
 6. Run:
