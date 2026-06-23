@@ -1,13 +1,15 @@
 import Foundation
 
 struct PaymentRoute: Equatable {
+    var requestId: String?
     var friendName: String
     var title: String
     var amount: Decimal
 
     static let sample = PaymentRoute(friendName: "Alex", title: "Dinner", amount: 28.67)
 
-    init(friendName: String, title: String, amount: Decimal) {
+    init(requestId: String? = nil, friendName: String, title: String, amount: Decimal) {
+        self.requestId = requestId
         self.friendName = friendName
         self.title = title
         self.amount = amount
@@ -21,9 +23,11 @@ struct PaymentRoute: Equatable {
         }
 
         let query = components.queryItems ?? []
+        let pathParts = components.path.split(separator: "/").map(String.init)
         let friend = query.first(where: { $0.name == "friend" })?.value ?? "friend"
         let title = query.first(where: { $0.name == "title" })?.value ?? "Expense"
         let amountString = query.first(where: { $0.name == "amount" })?.value ?? "0"
+        self.requestId = pathParts.first == "pay" ? pathParts.dropFirst().first : nil
         self.friendName = friend.capitalized
         self.title = title
         self.amount = Decimal(string: amountString) ?? 0

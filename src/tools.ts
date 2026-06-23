@@ -1,5 +1,6 @@
 import { createDeepSeek } from '@ai-sdk/deepseek'
 import { generateText, stepCountIs, tool } from 'ai'
+import { randomUUID } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { Agent, fetch as undiciFetch } from 'undici'
 import { z } from 'zod'
@@ -24,6 +25,7 @@ export const expenseDraftSchema = z.object({
 })
 
 export const paymentRequestSchema = z.object({
+  id: z.string().optional(),
   friendName: z.string(),
   amount: z.number().positive(),
   url: z.string(),
@@ -301,12 +303,14 @@ export function createPaymentRequests(input: {
   const baseUrl = input.baseUrl ?? publicBaseUrl()
   const each = Math.round((input.draft.total / input.draft.people.length) * 100) / 100
   const requests = input.draft.people.map((friendName) => {
-    const pay = new URL('/pay', baseUrl)
+    const id = randomUUID()
+    const pay = new URL(`/pay/${id}`, baseUrl)
     pay.searchParams.set('friend', friendName.toLowerCase())
     pay.searchParams.set('amount', each.toFixed(2))
     pay.searchParams.set('title', input.draft.title)
 
     return paymentRequestSchema.parse({
+      id,
       friendName,
       amount: each,
       url: pay.toString(),

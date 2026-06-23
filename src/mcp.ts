@@ -165,6 +165,31 @@ export function createMcpApp(): Hono {
     const view = findPaymentRequest({ friendName: friend, amount, title })
 
     return c.html(renderPaymentSheet({
+      requestId: view?.request.id,
+      friendName: view?.request.friendName ?? titleCase(friend ?? 'friend'),
+      payerName: view?.expense.payerName ?? 'Carson',
+      title: view?.expense.title ?? title ?? 'Expense',
+      amount: view?.request.amount ?? amount ?? 0,
+      status: view?.request.status ?? 'unpaid',
+      splitTotal: view?.expense.total,
+      participants: view?.participants.map((participant) => ({
+        name: participant.displayName,
+        amount: participant.amount,
+        status: participant.status,
+      })) ?? [],
+      message: view?.request.message,
+    }))
+  })
+
+  app.get('/pay/:id', (c) => {
+    const id = c.req.param('id')
+    const friend = c.req.query('friend') ?? undefined
+    const amount = parseAmount(c.req.query('amount'))
+    const title = c.req.query('title') ?? undefined
+    const view = findPaymentRequest({ id }) ?? findPaymentRequest({ friendName: friend, amount, title })
+
+    return c.html(renderPaymentSheet({
+      requestId: view?.request.id ?? id,
       friendName: view?.request.friendName ?? titleCase(friend ?? 'friend'),
       payerName: view?.expense.payerName ?? 'Carson',
       title: view?.expense.title ?? title ?? 'Expense',
@@ -182,20 +207,22 @@ export function createMcpApp(): Hono {
 
   app.post('/pay/paid', async (c) => {
     const body = await c.req.parseBody()
+    const id = String(body.requestId ?? '')
     const friendName = String(body.friendName ?? '')
     const amount = parseAmount(String(body.amount ?? ''))
-    const view = updatePaymentRequestStatus({ friendName, amount, status: 'paid' })
-    if (!view) return c.redirect(`/pay?friend=${encodeURIComponent(friendName)}&amount=${amount ?? ''}&paid=1`)
-    return c.redirect(`/pay?friend=${encodeURIComponent(view.request.friendName)}&amount=${view.request.amount.toFixed(2)}&paid=1`)
+    const view = updatePaymentRequestStatus({ id: id || undefined, friendName, amount, status: 'paid' })
+    if (!view) return c.redirect(id ? `/pay/${encodeURIComponent(id)}?paid=1` : `/pay?friend=${encodeURIComponent(friendName)}&amount=${amount ?? ''}&paid=1`)
+    return c.redirect(`/pay/${encodeURIComponent(view.request.id)}?paid=1`)
   })
 
   app.post('/pay/dispute', async (c) => {
     const body = await c.req.parseBody()
+    const id = String(body.requestId ?? '')
     const friendName = String(body.friendName ?? '')
     const amount = parseAmount(String(body.amount ?? ''))
-    const view = updatePaymentRequestStatus({ friendName, amount, status: 'disputed' })
-    if (!view) return c.redirect(`/pay?friend=${encodeURIComponent(friendName)}&amount=${amount ?? ''}&disputed=1`)
-    return c.redirect(`/pay?friend=${encodeURIComponent(view.request.friendName)}&amount=${view.request.amount.toFixed(2)}&disputed=1`)
+    const view = updatePaymentRequestStatus({ id: id || undefined, friendName, amount, status: 'disputed' })
+    if (!view) return c.redirect(id ? `/pay/${encodeURIComponent(id)}?disputed=1` : `/pay?friend=${encodeURIComponent(friendName)}&amount=${amount ?? ''}&disputed=1`)
+    return c.redirect(`/pay/${encodeURIComponent(view.request.id)}?disputed=1`)
   })
 
   app.post('/mcp', async (c) => {
@@ -252,6 +279,7 @@ function escapeHtml(value: string | number | undefined): string {
 }
 
 function renderPaymentSheet(input: {
+  requestId?: string
   friendName: string
   payerName: string
   title: string
@@ -507,11 +535,13 @@ function renderPaymentSheet(input: {
         </div>
 
         <form class="actions" method="post" action="/pay/paid">
+          <input type="hidden" name="requestId" value="${escapeHtml(input.requestId ?? '')}">
           <input type="hidden" name="friendName" value="${escapeHtml(input.friendName)}">
           <input type="hidden" name="amount" value="${input.amount.toFixed(2)}">
           <button class="quiet" type="submit">I paid</button>
         </form>
         <form class="actions" method="post" action="/pay/dispute">
+          <input type="hidden" name="requestId" value="${escapeHtml(input.requestId ?? '')}">
           <input type="hidden" name="friendName" value="${escapeHtml(input.friendName)}">
           <input type="hidden" name="amount" value="${input.amount.toFixed(2)}">
           <button class="danger" type="submit">This amount is wrong</button>

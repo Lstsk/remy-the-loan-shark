@@ -285,6 +285,7 @@ export function savePaymentRequestsForCurrent(requests: PaymentRequest[], ownerU
 }
 
 export function findPaymentRequest(input: {
+  id?: string
   friendName?: string
   title?: string
   amount?: number
@@ -299,6 +300,19 @@ export function findPaymentRequest(input: {
     .from(paymentRequests)
     .where(eq(paymentRequests.expenseId, current.expense.id))
     .all()
+
+  if (input.id) {
+    const request = allRequests.find((candidate) => candidate.id === input.id) ?? null
+    if (!request) return null
+    const participant = current.participants.find((candidate) => candidate.id === request.participantId) ?? null
+
+    return {
+      expense: current.expense,
+      participant,
+      request,
+      participants: current.participants,
+    }
+  }
 
   const normalizedFriend = input.friendName ? normalizeAlias(input.friendName) : null
   const request = allRequests.find((candidate) => {
@@ -319,6 +333,7 @@ export function findPaymentRequest(input: {
 }
 
 export function updatePaymentRequestStatus(input: {
+  id?: string
   friendName: string
   status: 'paid' | 'disputed' | 'partially_paid' | 'unpaid'
   amount?: number
@@ -328,6 +343,7 @@ export function updatePaymentRequestStatus(input: {
   if (!current) return null
 
   const request = findPaymentRequest({
+    id: input.id,
     friendName: input.friendName,
     amount: input.amount,
     ownerUserId: input.ownerUserId,
@@ -346,6 +362,7 @@ export function updatePaymentRequestStatus(input: {
     .run()
 
   return findPaymentRequest({
+    id: input.id,
     friendName: input.friendName,
     amount: input.amount,
     ownerUserId: input.ownerUserId,
