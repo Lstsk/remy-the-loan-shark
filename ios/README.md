@@ -15,11 +15,11 @@ https://YOUR_DOMAIN/pay?friend=alex&amount=28.67&title=Dinner
 ## Setup
 
 1. Replace `YOUR_DOMAIN_HERE` in `project.yml`.
-2. Set `DEVELOPMENT_TEAM` in `project.yml`.
+2. Confirm `DEVELOPMENT_TEAM` in `project.yml` is `QCW9XJC54W`.
 3. Set these backend env vars for the Apple association file:
 
 ```bash
-APPLE_APP_ID_PREFIX=YOUR_TEAM_ID
+APPLE_APP_ID_PREFIX=QCW9XJC54W
 IOS_APP_BUNDLE_ID=com.lstsk.remy
 IOS_APP_CLIP_BUNDLE_ID=com.lstsk.remy.Clip
 ```

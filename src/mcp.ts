@@ -137,7 +137,7 @@ export function createMcpApp(): Hono {
   app.get('/health', (c) => c.json({ ok: true, service: 'remy-mcp' }))
 
   app.get('/.well-known/apple-app-site-association', (c) => {
-    const appIdPrefix = process.env.APPLE_APP_ID_PREFIX ?? 'TEAMID'
+    const appIdPrefix = process.env.APPLE_APP_ID_PREFIX ?? 'QCW9XJC54W'
     const appBundleId = process.env.IOS_APP_BUNDLE_ID ?? 'com.lstsk.remy'
     const appClipBundleId = process.env.IOS_APP_CLIP_BUNDLE_ID ?? 'com.lstsk.remy.Clip'
 
