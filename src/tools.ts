@@ -128,6 +128,7 @@ export async function runRemyAgent(input: {
   baseUrl?: string
 }): Promise<string> {
   const payerName = input.payerName ?? 'Carson'
+  const wantsLocalTestSend = isLocalTestSend(input.text)
   const { text } = await generateText({
     model: model(),
     stopWhen: stepCountIs(4),
@@ -147,7 +148,7 @@ export async function runRemyAgent(input: {
         },
       }),
       create_payment_requests: tool({
-        description: 'Create payment request messages after the payer confirms they want to send the current draft. If contacts are missing, ask for contact cards instead.',
+        description: 'Create payment request messages after the payer confirms they want to send the current draft. If contacts are missing, ask for contact cards unless this is a local test send.',
         inputSchema: z.object({}),
         execute: async () => {
           if (!state.currentDraft) {
@@ -155,7 +156,7 @@ export async function runRemyAgent(input: {
           }
 
           const missingContacts = getMissingContactsForCurrent()
-          if (missingContacts.length > 0) {
+          if (missingContacts.length > 0 && !wantsLocalTestSend) {
             return {
               missingContacts,
               message: `I can’t see your iPhone Contacts yet. Share ${missingContacts.join(', ')}’s contact card here once, then I can send the requests.`,
@@ -169,7 +170,7 @@ export async function runRemyAgent(input: {
 
           return {
             requests,
-            message: [
+            message: wantsLocalTestSend ? formatTestRequests(requests) : [
               'Requests ready.',
               ...requests.map((request) => `${request.friendName}: $${request.amount.toFixed(2)}`),
             ].join('\n'),
@@ -215,6 +216,7 @@ export async function runRemyAgent(input: {
       '- Use draft_expense when the user gives enough info to draft a split.',
       '- Use get_current_draft if the user says yes/send/pay and you need to know what they are confirming.',
       '- Use create_payment_requests after they confirm sending a draft.',
+      '- If the user says "test", "send it here", "send to me", or similar, use create_payment_requests and present the request links in this same chat, even if contacts are missing.',
       '- Use resolve_contact when a name may need a saved phone/iMessage handle.',
       '- Use save_contact when the user gives contact details.',
       'If contact info is missing, never say the user does not have contacts. Say Remy cannot see their iPhone Contacts yet and ask them to share the contact card in this chat once.',
@@ -226,6 +228,23 @@ export async function runRemyAgent(input: {
   })
 
   return text.trim()
+}
+
+export function isLocalTestSend(text: string): boolean {
+  return /\b(test|demo|preview|try it|send it here|send here|send to me|send them here|show me|link here)\b/i.test(text)
+}
+
+export function formatTestRequests(requests: PaymentRequest[]): string {
+  return [
+    'Test mode: sending the cards here.',
+    '',
+    ...requests.map((request) => [
+      `${request.friendName} owes $${request.amount.toFixed(2)}`,
+      request.url,
+    ].join('\n')),
+    '',
+    'In production, I’ll send each person their own card.',
+  ].join('\n')
 }
 
 function parseJsonObject(text: string): unknown {
