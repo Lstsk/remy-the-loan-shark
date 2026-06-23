@@ -526,14 +526,15 @@ function renderPaymentSheet(input: {
 
 export function startMcpServer() {
   const port = Number(process.env.PORT ?? 8787)
+  const hostname = process.env.HOST ?? '0.0.0.0'
   const app = createMcpApp()
 
   return serve({
     fetch: app.fetch,
-    hostname: '127.0.0.1',
+    hostname,
     port,
   }, () => {
-    console.log(`Remy MCP server listening at http://127.0.0.1:${port}/mcp`)
+    console.log(`Remy MCP server listening at http://${hostname}:${port}/mcp`)
   })
 }
 

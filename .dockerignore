@@ -1,0 +1,7 @@
+node_modules
+npm-debug.log
+.git
+.env
+data
+ios/Remy.xcodeproj/xcuserdata
+ios/Remy.xcodeproj/project.xcworkspace/xcuserdata
