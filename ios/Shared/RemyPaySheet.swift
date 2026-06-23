@@ -12,21 +12,7 @@ struct RemyPaySheet: View {
 
     var body: some View {
         ZStack {
-            MeshGradient(
-                width: 3,
-                height: 3,
-                points: [
-                    [0, 0], [0.5, 0], [1, 0],
-                    [0, 0.5], [0.55, 0.48], [1, 0.5],
-                    [0, 1], [0.5, 1], [1, 1],
-                ],
-                colors: [
-                    .white, .blue.opacity(0.18), .orange.opacity(0.18),
-                    .mint.opacity(0.14), .white, .blue.opacity(0.12),
-                    .white, .gray.opacity(0.12), .white,
-                ]
-            )
-            .ignoresSafeArea()
+            background
 
             VStack {
                 Spacer()
@@ -35,6 +21,32 @@ struct RemyPaySheet: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
         }
+    }
+
+    private var background: some View {
+        LinearGradient(
+            colors: [
+                Color(uiColor: .systemBackground),
+                Color(uiColor: .secondarySystemBackground),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .overlay(alignment: .topLeading) {
+            Circle()
+                .fill(.blue.opacity(0.16))
+                .frame(width: 240, height: 240)
+                .blur(radius: 36)
+                .offset(x: -80, y: -90)
+        }
+        .overlay(alignment: .topTrailing) {
+            Circle()
+                .fill(.orange.opacity(0.16))
+                .frame(width: 220, height: 220)
+                .blur(radius: 34)
+                .offset(x: 90, y: -70)
+        }
+        .ignoresSafeArea()
     }
 
     private var sheet: some View {
