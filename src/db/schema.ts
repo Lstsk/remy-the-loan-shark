@@ -65,6 +65,7 @@ export const paymentRequests = sqliteTable('payment_requests', {
   expenseId: text('expense_id').notNull().references(() => expenses.id),
   participantId: text('participant_id').notNull().references(() => expenseParticipants.id),
   contactId: text('contact_id').references(() => contacts.id),
+  uiVariant: text('ui_variant').notNull().default('link_preview'),
   friendName: text('friend_name').notNull(),
   amount: real('amount').notNull(),
   url: text('url').notNull(),
@@ -73,6 +74,17 @@ export const paymentRequests = sqliteTable('payment_requests', {
   reminderCount: integer('reminder_count').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+})
+
+export const paymentRequestEvents = sqliteTable('payment_request_events', {
+  id: text('id').primaryKey(),
+  requestId: text('request_id').notNull().references(() => paymentRequests.id),
+  expenseId: text('expense_id').references(() => expenses.id),
+  uiVariant: text('ui_variant').notNull(),
+  eventType: text('event_type').notNull(),
+  userAgent: text('user_agent'),
+  referrer: text('referrer'),
+  createdAt: text('created_at').notNull(),
 })
 
 export const conversationState = sqliteTable('conversation_state', {

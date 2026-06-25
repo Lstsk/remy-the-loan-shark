@@ -9,6 +9,7 @@ import {
   getCurrentExpense,
   getMissingContactsForCurrent,
   getStoredState,
+  recordPaymentRequestEvent,
   resolveContact,
   saveContact,
   saveExpenseDraft,
@@ -26,9 +27,11 @@ export const expenseDraftSchema = z.object({
 
 export const paymentRequestSchema = z.object({
   id: z.string().optional(),
+  uiVariant: z.enum(['link_preview', 'image_card', 'conversational_minimal']).default('link_preview'),
   friendName: z.string(),
   amount: z.number().positive(),
   url: z.string(),
+  cardUrl: z.string().optional(),
   message: z.string(),
 })
 
@@ -186,7 +189,7 @@ export async function runRemyAgent(input: {
             requests,
             message: wantsLocalTestSend ? formatTestRequests(requests) : [
               'Requests ready.',
-              ...requests.map((request) => `${request.friendName}: $${request.amount.toFixed(2)}`),
+              ...requests.map(formatPaymentRequestForChat),
             ].join('\n'),
           }
         },
@@ -250,14 +253,11 @@ export function isLocalTestSend(text: string): boolean {
 
 export function formatTestRequests(requests: PaymentRequest[]): string {
   return [
-    'Test cards ready.',
+    'Test variants ready.',
     '',
-    ...requests.map((request) => [
-      `${request.friendName} · $${request.amount.toFixed(2)}`,
-      request.url,
-    ].join('\n')),
+    ...requests.map(formatPaymentRequestForChat),
     '',
-    'In production, each person gets only their own card.',
+    'In production, each person gets only their own variant.',
   ].join('\n')
 }
 
@@ -299,22 +299,38 @@ function parseJsonObject(text: string): unknown {
 export function createPaymentRequests(input: {
   draft: ExpenseDraft
   baseUrl?: string
+  forceVariant?: PaymentRequest['uiVariant']
 }): PaymentRequest[] {
   const baseUrl = input.baseUrl ?? publicBaseUrl()
   const each = Math.round((input.draft.total / input.draft.people.length) * 100) / 100
-  const requests = input.draft.people.map((friendName) => {
+  const requests = input.draft.people.map((friendName, index) => {
     const id = randomUUID()
-    const pay = new URL(`/pay/${id}`, baseUrl)
+    const uiVariant = input.forceVariant ?? selectPaymentUiVariant(`${input.draft.title}:${friendName}:${index}`)
+    const pay = new URL(`/r/${id}`, baseUrl)
     pay.searchParams.set('friend', friendName.toLowerCase())
     pay.searchParams.set('amount', each.toFixed(2))
     pay.searchParams.set('title', input.draft.title)
+    const card = new URL(`/card/${id}.svg`, baseUrl)
 
     return paymentRequestSchema.parse({
       id,
+      uiVariant,
       friendName,
       amount: each,
       url: pay.toString(),
-      message: `${input.draft.payerName} paid for ${input.draft.title.toLowerCase()}. You owe $${each.toFixed(2)}. Pay here: ${pay.toString()}\n\npowered by Remy`,
+      cardUrl: card.toString(),
+      message: formatPaymentRequestMessage({
+        payerName: input.draft.payerName,
+        title: input.draft.title,
+        request: {
+          id,
+          uiVariant,
+          friendName,
+          amount: each,
+          url: pay.toString(),
+          cardUrl: card.toString(),
+        },
+      }),
     })
   })
 
@@ -331,8 +347,71 @@ export function createPaymentRequests(input: {
   ) {
     saveExpenseDraft(input.draft)
   }
-  savePaymentRequestsForCurrent(requests)
+  const saved = savePaymentRequestsForCurrent(requests)
+  for (const request of saved) {
+    recordPaymentRequestEvent({ requestId: request.id, eventType: 'created' })
+  }
   return requests
+}
+
+export function selectPaymentUiVariant(seed: string): PaymentRequest['uiVariant'] {
+  const forced = process.env.REMY_PAYMENT_UI_VARIANT
+  if (forced === 'link_preview' || forced === 'image_card' || forced === 'conversational_minimal') {
+    return forced
+  }
+
+  const variants: Array<PaymentRequest['uiVariant']> = ['link_preview', 'image_card', 'conversational_minimal']
+  const score = [...seed].reduce((total, char) => total + char.charCodeAt(0), 0)
+  return variants[score % variants.length]
+}
+
+export function formatPaymentRequestForChat(request: PaymentRequest): string {
+  recordMessageRendered(request)
+
+  if (request.uiVariant === 'image_card' && request.cardUrl) {
+    return [
+      `${request.friendName}, your share is $${request.amount.toFixed(2)}.`,
+      request.cardUrl,
+      `Pay: ${request.url}`,
+    ].join('\n')
+  }
+
+  if (request.uiVariant === 'conversational_minimal') {
+    return `${request.friendName}: $${request.amount.toFixed(2)}. Pay here: ${request.url}`
+  }
+
+  return [
+    `${request.friendName}: $${request.amount.toFixed(2)}`,
+    request.url,
+  ].join('\n')
+}
+
+function formatPaymentRequestMessage(input: {
+  payerName: string
+  title: string
+  request: Pick<PaymentRequest, 'friendName' | 'amount' | 'url' | 'uiVariant' | 'cardUrl' | 'id'>
+}): string {
+  const amount = input.request.amount.toFixed(2)
+  if (input.request.uiVariant === 'image_card' && input.request.cardUrl) {
+    return [
+      input.request.cardUrl,
+      `${input.request.friendName}, ${input.payerName} paid for ${input.title.toLowerCase()}.`,
+      `Your share is $${amount}. Pay here: ${input.request.url}`,
+      '',
+      'powered by Remy',
+    ].join('\n')
+  }
+
+  if (input.request.uiVariant === 'conversational_minimal') {
+    return `${input.request.friendName}, your share is $${amount} for ${input.title.toLowerCase()}. Pay here: ${input.request.url}`
+  }
+
+  return `${input.payerName} paid for ${input.title.toLowerCase()}. You owe $${amount}. Pay here: ${input.request.url}\n\npowered by Remy`
+}
+
+function recordMessageRendered(request: PaymentRequest): void {
+  if (!request.id) return
+  recordPaymentRequestEvent({ requestId: request.id, eventType: 'message_rendered' })
 }
 
 export function getRemyState() {

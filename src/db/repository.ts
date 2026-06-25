@@ -7,6 +7,7 @@ import {
   conversationState,
   expenseParticipants,
   expenses,
+  paymentRequestEvents,
   paymentRequests,
   users,
 } from './schema.ts'
@@ -258,10 +259,11 @@ export function savePaymentRequestsForCurrent(requests: PaymentRequest[], ownerU
     }
 
     return {
-      id: randomUUID(),
+      id: request.id ?? randomUUID(),
       expenseId: current.expense.id,
       participantId: participant.id,
       contactId: participant.contactId,
+      uiVariant: request.uiVariant,
       friendName: request.friendName,
       amount: request.amount,
       url: request.url,
@@ -282,6 +284,87 @@ export function savePaymentRequestsForCurrent(requests: PaymentRequest[], ownerU
   }
 
   return values
+}
+
+export function recordPaymentRequestEvent(input: {
+  requestId: string
+  eventType: 'created' | 'message_rendered' | 'card_viewed' | 'link_clicked' | 'payment_sheet_opened' | 'marked_paid' | 'disputed'
+  userAgent?: string
+  referrer?: string
+}) {
+  const request = db.select().from(paymentRequests).where(eq(paymentRequests.id, input.requestId)).get()
+  if (!request) return null
+
+  const event = {
+    id: randomUUID(),
+    requestId: request.id,
+    expenseId: request.expenseId,
+    uiVariant: request.uiVariant,
+    eventType: input.eventType,
+    userAgent: input.userAgent ?? null,
+    referrer: input.referrer ?? null,
+    createdAt: nowIso(),
+  }
+  db.insert(paymentRequestEvents).values(event).run()
+  return event
+}
+
+export function getPaymentUiExperimentSummary() {
+  ensureDefaultUser()
+  const rows = db
+    .select()
+    .from(paymentRequestEvents)
+    .all()
+
+  const summary = new Map<string, {
+    variant: string
+    requests: Set<string>
+    messages: number
+    cardViews: number
+    clicks: number
+    opens: number
+    paid: number
+    disputed: number
+  }>()
+
+  for (const event of rows) {
+    const current = summary.get(event.uiVariant) ?? {
+      variant: event.uiVariant,
+      requests: new Set<string>(),
+      messages: 0,
+      cardViews: 0,
+      clicks: 0,
+      opens: 0,
+      paid: 0,
+      disputed: 0,
+    }
+    current.requests.add(event.requestId)
+    if (event.eventType === 'message_rendered') current.messages += 1
+    if (event.eventType === 'card_viewed') current.cardViews += 1
+    if (event.eventType === 'link_clicked') current.clicks += 1
+    if (event.eventType === 'payment_sheet_opened') current.opens += 1
+    if (event.eventType === 'marked_paid') current.paid += 1
+    if (event.eventType === 'disputed') current.disputed += 1
+    summary.set(event.uiVariant, current)
+  }
+
+  return [...summary.values()].map((variant) => ({
+    variant: variant.variant,
+    requests: variant.requests.size,
+    messages: variant.messages,
+    cardViews: variant.cardViews,
+    clicks: variant.clicks,
+    opens: variant.opens,
+    paid: variant.paid,
+    disputed: variant.disputed,
+    clickRate: rate(variant.clicks, variant.messages),
+    paidRate: rate(variant.paid, variant.messages),
+  }))
+}
+
+function rate(numerator: number, denominator: number): number {
+  if (denominator === 0) return 0
+  return Math.round((numerator / denominator) * 1000) / 1000
 }
 
 export function findPaymentRequest(input: {

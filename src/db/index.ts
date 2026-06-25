@@ -82,6 +82,7 @@ export function ensureDatabase(): void {
       expense_id TEXT NOT NULL REFERENCES expenses(id),
       participant_id TEXT NOT NULL REFERENCES expense_participants(id),
       contact_id TEXT REFERENCES contacts(id),
+      ui_variant TEXT NOT NULL DEFAULT 'link_preview',
       friend_name TEXT NOT NULL,
       amount REAL NOT NULL,
       url TEXT NOT NULL,
@@ -91,6 +92,23 @@ export function ensureDatabase(): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS payment_request_events (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES payment_requests(id),
+      expense_id TEXT REFERENCES expenses(id),
+      ui_variant TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      user_agent TEXT,
+      referrer TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS payment_request_events_request_idx
+      ON payment_request_events(request_id);
+
+    CREATE INDEX IF NOT EXISTS payment_request_events_variant_type_idx
+      ON payment_request_events(ui_variant, event_type);
 
     CREATE TABLE IF NOT EXISTS conversation_state (
       id TEXT PRIMARY KEY,
@@ -103,4 +121,12 @@ export function ensureDatabase(): void {
     CREATE UNIQUE INDEX IF NOT EXISTS conversation_state_owner_idx
       ON conversation_state(owner_user_id);
   `)
+
+  ensureColumn('payment_requests', 'ui_variant', "TEXT NOT NULL DEFAULT 'link_preview'")
+}
+
+function ensureColumn(tableName: string, columnName: string, definition: string): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
+  if (columns.some((column) => column.name === columnName)) return
+  sqlite.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
 }

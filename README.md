@@ -23,6 +23,29 @@ The agent reads credentials from `.env`.
 npm run verify
 ```
 
+## Payment UI Experiment
+
+Remy can A/B test chat-native payment UI without requiring an iOS app install.
+
+Variants:
+
+- `link_preview`: short message plus tracked pay link, relying on Messages link previews.
+- `image_card`: generated receipt/payment image at `/card/:id.svg`, followed by the tracked pay link.
+- `conversational_minimal`: fastest text-first payment request.
+
+By default, Remy assigns variants deterministically across requests. To force one variant during a live test:
+
+```bash
+REMY_PAYMENT_UI_VARIANT=image_card npm start
+```
+
+Tracked surfaces:
+
+- `/r/:id` records a payment-link tap, then redirects to `/pay/:id`.
+- `/card/:id.svg` renders the image-card treatment and records a card view.
+- `/pay/:id` records payment-sheet opens.
+- `/experiments/payment-ui` returns variant-level counts and rates.
+
 ## iMessage
 
 Text the Spectrum line from Photon. The agent handles natural messages like:

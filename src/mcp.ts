@@ -11,7 +11,14 @@ import {
   runRemyAgent,
   understandExpenseMessage,
 } from './tools.ts'
-import { findPaymentRequest, resolveContact, saveContact, updatePaymentRequestStatus } from './db/repository.ts'
+import {
+  findPaymentRequest,
+  getPaymentUiExperimentSummary,
+  recordPaymentRequestEvent,
+  resolveContact,
+  saveContact,
+  updatePaymentRequestStatus,
+} from './db/repository.ts'
 
 export function createRemyMcpServer(): McpServer {
   const server = new McpServer({
@@ -103,12 +110,13 @@ export function createRemyMcpServer(): McpServer {
       inputSchema: {
         draft: expenseDraftSchema,
         baseUrl: z.string().url().optional(),
+        forceVariant: z.enum(['link_preview', 'image_card', 'conversational_minimal']).optional(),
       },
     },
-    async ({ draft, baseUrl }) => ({
+    async ({ draft, baseUrl, forceVariant }) => ({
       content: [{
         type: 'text',
-        text: JSON.stringify(createPaymentRequests({ draft, baseUrl }), null, 2),
+        text: JSON.stringify(createPaymentRequests({ draft, baseUrl, forceVariant }), null, 2),
       }],
     }),
   )
@@ -135,6 +143,59 @@ export function createMcpApp(): Hono {
   const app = new Hono()
 
   app.get('/health', (c) => c.json({ ok: true, service: 'remy-mcp' }))
+
+  app.get('/experiments/payment-ui', (c) => c.json({
+    experiment: 'payment-ui',
+    variants: [
+      'link_preview',
+      'image_card',
+      'conversational_minimal',
+    ],
+    summary: getPaymentUiExperimentSummary(),
+  }))
+
+  app.get('/r/:id', (c) => {
+    const id = c.req.param('id')
+    recordPaymentRequestEvent({
+      requestId: id,
+      eventType: 'link_clicked',
+      userAgent: c.req.header('user-agent'),
+      referrer: c.req.header('referer'),
+    })
+
+    const target = new URL(`/pay/${encodeURIComponent(id)}`, publicUrlFromRequest(c.req.raw))
+    for (const key of ['friend', 'amount', 'title']) {
+      const value = c.req.query(key)
+      if (value) target.searchParams.set(key, value)
+    }
+    return c.redirect(target.pathname + target.search)
+  })
+
+  app.get('/card/:file', (c) => {
+    const file = c.req.param('file')
+    const id = file.replace(/\.svg$/i, '')
+    const view = findPaymentRequest({ id })
+    if (view) {
+      recordPaymentRequestEvent({
+        requestId: id,
+        eventType: 'card_viewed',
+        userAgent: c.req.header('user-agent'),
+        referrer: c.req.header('referer'),
+      })
+    }
+
+    c.header('Content-Type', 'image/svg+xml; charset=utf-8')
+    c.header('Cache-Control', 'no-store')
+    return c.body(renderPaymentCardSvg({
+      friendName: view?.request.friendName ?? 'Friend',
+      payerName: view?.expense.payerName ?? 'Carson',
+      title: view?.expense.title ?? 'Shared expense',
+      amount: view?.request.amount ?? 0,
+      status: view?.request.status ?? 'unpaid',
+      paidCount: view?.participants.filter((participant) => participant.status === 'paid').length ?? 0,
+      totalCount: view?.participants.length ?? 1,
+    }))
+  })
 
   app.get('/pay', (c) => {
     const friend = c.req.query('friend') ?? undefined
@@ -165,6 +226,14 @@ export function createMcpApp(): Hono {
     const amount = parseAmount(c.req.query('amount'))
     const title = c.req.query('title') ?? undefined
     const view = findPaymentRequest({ id }) ?? findPaymentRequest({ friendName: friend, amount, title })
+    if (view?.request.id) {
+      recordPaymentRequestEvent({
+        requestId: view.request.id,
+        eventType: 'payment_sheet_opened',
+        userAgent: c.req.header('user-agent'),
+        referrer: c.req.header('referer'),
+      })
+    }
 
     return c.html(renderPaymentSheet({
       requestId: view?.request.id ?? id,
@@ -189,6 +258,9 @@ export function createMcpApp(): Hono {
     const friendName = String(body.friendName ?? '')
     const amount = parseAmount(String(body.amount ?? ''))
     const view = updatePaymentRequestStatus({ id: id || undefined, friendName, amount, status: 'paid' })
+    if (view?.request.id) {
+      recordPaymentRequestEvent({ requestId: view.request.id, eventType: 'marked_paid' })
+    }
     if (!view) return c.redirect(id ? `/pay/${encodeURIComponent(id)}?paid=1` : `/pay?friend=${encodeURIComponent(friendName)}&amount=${amount ?? ''}&paid=1`)
     return c.redirect(`/pay/${encodeURIComponent(view.request.id)}?paid=1`)
   })
@@ -199,6 +271,9 @@ export function createMcpApp(): Hono {
     const friendName = String(body.friendName ?? '')
     const amount = parseAmount(String(body.amount ?? ''))
     const view = updatePaymentRequestStatus({ id: id || undefined, friendName, amount, status: 'disputed' })
+    if (view?.request.id) {
+      recordPaymentRequestEvent({ requestId: view.request.id, eventType: 'disputed' })
+    }
     if (!view) return c.redirect(id ? `/pay/${encodeURIComponent(id)}?disputed=1` : `/pay?friend=${encodeURIComponent(friendName)}&amount=${amount ?? ''}&disputed=1`)
     return c.redirect(`/pay/${encodeURIComponent(view.request.id)}?disputed=1`)
   })
@@ -247,6 +322,11 @@ function titleCase(value: string): string {
     .join(' ')
 }
 
+function publicUrlFromRequest(request: Request): string {
+  const url = new URL(request.url)
+  return `${url.protocol}//${url.host}`
+}
+
 function escapeHtml(value: string | number | undefined): string {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -254,6 +334,70 @@ function escapeHtml(value: string | number | undefined): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+function renderPaymentCardSvg(input: {
+  friendName: string
+  payerName: string
+  title: string
+  amount: number
+  status: string
+  paidCount: number
+  totalCount: number
+}): string {
+  const statusLabel = input.status === 'paid'
+    ? 'Paid'
+    : input.status === 'disputed'
+      ? 'Needs review'
+      : 'Ready to pay'
+  const statusFill = input.status === 'paid'
+    ? '#1f9d61'
+    : input.status === 'disputed'
+      ? '#b9680f'
+      : '#007aff'
+  const statusText = `${input.paidCount} of ${input.totalCount} paid`
+
+  const title = escapeHtml(input.title)
+  const payerName = escapeHtml(input.payerName)
+  const friendName = escapeHtml(input.friendName)
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="Remy payment card">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="0.48" stop-color="#eef6f3"/>
+      <stop offset="1" stop-color="#f5f1ea"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.94"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.70"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="28" stdDeviation="32" flood-color="#15151a" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <rect x="96" y="74" width="1008" height="572" rx="48" fill="url(#glass)" stroke="#ffffff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="146" y="128" width="86" height="86" rx="26" fill="#111115"/>
+  <text x="209" y="194" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="44" font-weight="800">R</text>
+  <text x="264" y="170" fill="#686871" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26" font-weight="650">Remy verified split</text>
+  <text x="264" y="212" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="760">${friendName}</text>
+  <rect x="845" y="145" width="170" height="50" rx="25" fill="${statusFill}" fill-opacity="0.12"/>
+  <text x="930" y="179" text-anchor="middle" fill="${statusFill}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" font-weight="760">${escapeHtml(statusLabel)}</text>
+  <text x="146" y="340" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="116" font-weight="780">$${input.amount.toFixed(2)}</text>
+  <text x="152" y="400" fill="#686871" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="560">${payerName} paid for ${title}</text>
+  <rect x="748" y="260" width="248" height="226" rx="28" fill="#ffffff" stroke="#e7e7ed"/>
+  <rect x="785" y="296" width="174" height="18" rx="9" fill="#d8d8df"/>
+  <rect x="785" y="342" width="118" height="14" rx="7" fill="#ececf1"/>
+  <rect x="785" y="376" width="154" height="14" rx="7" fill="#ececf1"/>
+  <rect x="785" y="410" width="132" height="14" rx="7" fill="#ececf1"/>
+  <path d="M788 460 H956" stroke="#d8d8df" stroke-width="3" stroke-dasharray="10 10"/>
+  <text x="872" y="530" text-anchor="middle" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="760">receipt proof</text>
+  <line x1="146" y1="472" x2="690" y2="472" stroke="#e4e4ea" stroke-width="2"/>
+  <text x="146" y="540" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="700">${escapeHtml(statusText)}</text>
+  <text x="146" y="584" fill="#686871" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="520">Tap through to pay, mark paid, or ask for a review.</text>
+  <text x="1034" y="584" text-anchor="end" fill="#8b8b94" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="650">trymomento.app</text>
+</svg>`
 }
 
 function renderPaymentSheet(input: {
@@ -311,8 +455,7 @@ function renderPaymentSheet(input: {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at 18% -8%, rgba(255, 138, 76, 0.20), transparent 32%),
-        radial-gradient(circle at 82% 0%, rgba(0, 122, 255, 0.18), transparent 34%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(240, 247, 244, 0.76) 46%, rgba(246, 241, 233, 0.82)),
         linear-gradient(180deg, #fbfbfd 0%, #eeeeF2 100%);
       color: var(--ink);
       letter-spacing: 0;

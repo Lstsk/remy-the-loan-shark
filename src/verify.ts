@@ -17,12 +17,13 @@ const draft = expenseDraftSchema.parse({
   confidence: 0.9,
 })
 
-const requests = createPaymentRequests({ draft, baseUrl: 'https://remy.test' })
+const requests = createPaymentRequests({ draft, baseUrl: 'https://remy.test', forceVariant: 'image_card' })
 assert(requests.length === 3, 'expected three payment requests')
 assert(formatDraft(draft).includes('Reply yes'), 'draft reply should ask for confirmation')
 assert(isLocalTestSend('test send it here'), 'test send phrase should enable local test mode')
-assert(formatTestRequests(requests).includes('Test cards ready'), 'test requests should say test cards are ready')
-assert(formatTestRequests(requests).includes('https://remy.test/pay'), 'test requests should include pay links')
+assert(formatTestRequests(requests).includes('Test variants ready'), 'test requests should say test variants are ready')
+assert(formatTestRequests(requests).includes('https://remy.test/r'), 'test requests should include tracked pay links')
+assert(formatTestRequests(requests).includes('https://remy.test/card'), 'image-card variant should include card links')
 
 const listener = localServe(createMcpApp().fetch)
 try {
@@ -44,6 +45,24 @@ try {
   const payHtml = await payResponse.text()
   assert(payHtml.includes('Remy payment request'), 'pay sheet should include accessible label')
   assert(payHtml.includes('Venmo'), 'pay sheet should include payment actions')
+
+  const requestId = requests[0].id
+  assert(requestId, 'payment request should have an id')
+  const cardResponse = await fetch(`${listener.url}/card/${requestId}.svg`)
+  assert(cardResponse.ok, 'image-card SVG should render')
+  assert(cardResponse.headers.get('content-type')?.includes('image/svg+xml'), 'image-card route should serve SVG')
+  const cardSvg = await cardResponse.text()
+  assert(cardSvg.includes('Remy payment card'), 'image-card SVG should include accessible label')
+
+  const trackedResponse = await fetch(`${listener.url}/r/${requestId}`)
+  assert(trackedResponse.ok, 'tracked pay redirect should resolve to pay sheet')
+
+  const experimentResponse = await fetch(`${listener.url}/experiments/payment-ui`)
+  assert(experimentResponse.ok, 'experiment summary should render')
+  const experimentJson = await experimentResponse.json() as { summary: Array<{ variant: string, clicks: number, cardViews: number }> }
+  const imageSummary = experimentJson.summary.find((row) => row.variant === 'image_card')
+  assert(imageSummary && imageSummary.cardViews > 0, 'experiment summary should count card views')
+  assert(imageSummary.clicks > 0, 'experiment summary should count clicks')
 
   console.log('PASS clean Remy Spectrum/MCP setup verified.')
 } finally {
