@@ -38,6 +38,40 @@ export const paymentRequestSchema = z.object({
 export type ExpenseDraft = z.infer<typeof expenseDraftSchema>
 export type PaymentRequest = z.infer<typeof paymentRequestSchema>
 
+export type AgentNextAction =
+  | 'confirm_send'
+  | 'payment_links_created'
+  | 'collect_split_details'
+  | 'no_recipients'
+  | 'contact_saved'
+  | 'answer_casually'
+
+export interface SplitParticipantSummary {
+  name: string
+  amount: number
+  role: 'payer' | 'recipient'
+}
+
+export interface SplitSummary {
+  title: string
+  payerName: string
+  total: number
+  splitMode: ExpenseDraft['splitMode']
+  perPersonAmount: number
+  includesPayer: boolean
+  requestCount: number
+  participants: SplitParticipantSummary[]
+}
+
+export interface AgentToolResult<TFacts> {
+  ok: boolean
+  action: string
+  nextAction: AgentNextAction
+  summary: string
+  suggestedReply: string
+  facts: TFacts
+}
+
 const state = {
   currentDraft: null as ExpenseDraft | null,
   requests: [] as PaymentRequest[],
@@ -128,6 +162,168 @@ export function rememberDraft(draft: ExpenseDraft): void {
   saveExpenseDraft(draft)
 }
 
+export function draftSplitForAgent(draft: ExpenseDraft): AgentToolResult<{
+  draft: ExpenseDraft
+  split: SplitSummary
+}> {
+  const parsed = expenseDraftSchema.parse(draft)
+  rememberDraft(parsed)
+  const split = buildSplitSummary(parsed)
+
+  return {
+    ok: true,
+    action: 'draft_split',
+    nextAction: split.requestCount > 0 ? 'confirm_send' : 'no_recipients',
+    summary: formatSplitSummary(split),
+    suggestedReply: formatDraft(parsed),
+    facts: {
+      draft: parsed,
+      split,
+    },
+  }
+}
+
+export function getCurrentSplitForAgent(): AgentToolResult<{
+  draft: ExpenseDraft | null
+  split: SplitSummary | null
+  requests: PaymentRequest[]
+}> {
+  const draft = state.currentDraft ?? draftFromStoredExpense()
+  if (!draft) {
+    return {
+      ok: false,
+      action: 'get_current_split_summary',
+      nextAction: 'collect_split_details',
+      summary: 'No active split draft.',
+      suggestedReply: 'What did you pay, how much was it, and who shared it?',
+      facts: {
+        draft: null,
+        split: null,
+        requests: [],
+      },
+    }
+  }
+
+  const split = buildSplitSummary(draft)
+  return {
+    ok: true,
+    action: 'get_current_split_summary',
+    nextAction: split.requestCount > 0 ? 'confirm_send' : 'no_recipients',
+    summary: formatSplitSummary(split),
+    suggestedReply: split.requestCount > 0
+      ? `${formatSplitSummary(split)} Reply yes and I’ll make the payment link${split.requestCount === 1 ? '' : 's'}.`
+      : 'I don’t see anyone else to request from on this split.',
+    facts: {
+      draft,
+      split,
+      requests: getCurrentPaymentRequests(),
+    },
+  }
+}
+
+export function sendPaymentLinksForCurrentSplit(input: {
+  baseUrl?: string
+  forceVariant?: PaymentRequest['uiVariant']
+} = {}): AgentToolResult<{
+  draft: ExpenseDraft | null
+  split: SplitSummary | null
+  requests: PaymentRequest[]
+}> {
+  const draft = state.currentDraft ?? draftFromStoredExpense()
+  if (!draft) {
+    return {
+      ok: false,
+      action: 'send_payment_links_for_current_split',
+      nextAction: 'collect_split_details',
+      summary: 'No active split draft.',
+      suggestedReply: 'Send me the amount, what it was for, and who shared it first.',
+      facts: {
+        draft: null,
+        split: null,
+        requests: [],
+      },
+    }
+  }
+
+  const split = buildSplitSummary(draft)
+  if (split.requestCount === 0) {
+    return {
+      ok: false,
+      action: 'send_payment_links_for_current_split',
+      nextAction: 'no_recipients',
+      summary: formatSplitSummary(split),
+      suggestedReply: 'I don’t see anyone else to request from on this split.',
+      facts: {
+        draft,
+        split,
+        requests: [],
+      },
+    }
+  }
+
+  const existingRequests = getCurrentPaymentRequests(input.baseUrl)
+  if (requestsMatchSplit(existingRequests, split)) {
+    return {
+      ok: true,
+      action: 'send_payment_links_for_current_split',
+      nextAction: 'payment_links_created',
+      summary: formatSplitSummary(split),
+      suggestedReply: formatSentRequests(existingRequests),
+      facts: {
+        draft,
+        split,
+        requests: existingRequests,
+      },
+    }
+  }
+
+  const requests = createPaymentRequests({
+    draft,
+    baseUrl: input.baseUrl,
+    forceVariant: input.forceVariant,
+  })
+
+  return {
+    ok: true,
+    action: 'send_payment_links_for_current_split',
+    nextAction: 'payment_links_created',
+    summary: formatSplitSummary(split),
+    suggestedReply: formatSentRequests(requests),
+    facts: {
+      draft,
+      split,
+      requests,
+    },
+  }
+}
+
+export function saveFriendContactForAgent(input: {
+  displayName: string
+  alias?: string
+  phone?: string
+  imessageHandle?: string
+  preferredPayoutMethod?: string
+  payoutHandle?: string
+}): AgentToolResult<{
+  contact: ReturnType<typeof saveContact>
+}> {
+  const contact = saveContact({
+    ...input,
+    source: 'agent',
+  })
+
+  return {
+    ok: true,
+    action: 'save_friend_contact',
+    nextAction: 'contact_saved',
+    summary: `Saved contact for ${contact.displayName}.`,
+    suggestedReply: `Got ${contact.displayName}. I’ll remember them for next time.`,
+    facts: {
+      contact,
+    },
+  }
+}
+
 export async function runRemyAgent(input: {
   text: string
   payerName?: string
@@ -136,10 +332,9 @@ export async function runRemyAgent(input: {
   const payerName = input.payerName ?? 'Carson'
   const existingDraft = state.currentDraft ?? draftFromStoredExpense()
   if (existingDraft && isSendConfirmation(input.text)) {
-    return formatSentRequests(createPaymentRequests({
-      draft: existingDraft,
+    return sendPaymentLinksForCurrentSplit({
       baseUrl: input.baseUrl ?? publicBaseUrl(),
-    }))
+    }).suggestedReply
   }
 
   const wantsLocalTestSend = isLocalTestSend(input.text)
@@ -159,43 +354,24 @@ export async function runRemyAgent(input: {
     model: model(),
     stopWhen: stepCountIs(4),
     tools: {
-      draft_expense: tool({
-        description: 'Draft a split when the user gives enough expense details: amount, what it was for, and who shared it. Include the payer in people for equal splits.',
+      draft_split: tool({
+        description: 'Normalize and store a split draft. Use when the user gives amount, what it was for, and who shared it. The tool owns split math, payer handling, and the suggested reply.',
         inputSchema: expenseDraftSchema.extend({
           payerName: z.string().default(payerName),
         }),
-        execute: async (draft) => {
-          const parsed = expenseDraftSchema.parse(draft)
-          rememberDraft(parsed)
-          return {
-            draft: parsed,
-            message: formatDraft(parsed),
-          }
-        },
+        execute: async (draft) => draftSplitForAgent(expenseDraftSchema.parse(draft)),
       }),
-      create_payment_requests: tool({
-        description: 'Create shareable payment request links after the payer confirms they want to send the current draft.',
+      send_payment_links_for_current_split: tool({
+        description: 'Create tracked payment links for the active split after the payer confirms. The tool excludes the payer, chooses experiment variants, records events, and returns a suggested reply.',
         inputSchema: z.object({}),
-        execute: async () => {
-          if (!state.currentDraft) {
-            return { error: 'No current draft. Ask what they paid first.' }
-          }
-
-          const requests = createPaymentRequests({
-            draft: state.currentDraft,
-            baseUrl: input.baseUrl ?? publicBaseUrl(),
-          })
-
-          return {
-            requests,
-            message: wantsLocalTestSend ? formatTestRequests(requests) : formatSentRequests(requests),
-          }
-        },
+        execute: async () => sendPaymentLinksForCurrentSplit({
+          baseUrl: input.baseUrl ?? publicBaseUrl(),
+        }),
       }),
-      get_current_draft: tool({
-        description: 'Check whether there is already a drafted expense in this chat.',
+      get_current_split_summary: tool({
+        description: 'Read the active split in an agent-friendly shape: summary, next action, suggested reply, participants, and existing requests.',
         inputSchema: z.object({}),
-        execute: async () => getRemyState(),
+        execute: async () => getCurrentSplitForAgent(),
       }),
       resolve_contact: tool({
         description: 'Look up whether Remy already knows a friend by name or alias.',
@@ -207,8 +383,8 @@ export async function runRemyAgent(input: {
           return result?.contact ?? { missing: true, alias }
         },
       }),
-      save_contact: tool({
-        description: 'Save a contact mapping after the user provides a phone number, iMessage handle, or contact-card details.',
+      save_friend_contact: tool({
+        description: 'Save a friend contact only when the user shares contact details or asks for direct iMessage delivery. Contact cards are not required for shareable payment links.',
         inputSchema: z.object({
           displayName: z.string(),
           alias: z.string().optional(),
@@ -217,24 +393,19 @@ export async function runRemyAgent(input: {
           preferredPayoutMethod: z.string().optional(),
           payoutHandle: z.string().optional(),
         }),
-        execute: async (input) => saveContact({
-          ...input,
-          source: 'agent',
-        }),
+        execute: async (input) => saveFriendContactForAgent(input),
       }),
     },
     prompt: [
       'You are Remy, an iMessage-first agent that gets friends paid back without making it awkward.',
       'Reply naturally and briefly.',
-      'Do not force every message into a category.',
-      'Use tools only when they help:',
-      '- Use draft_expense when the user gives enough info to draft a split.',
-      '- Use get_current_draft if the user says yes/send/pay and you need to know what they are confirming.',
-      '- Use create_payment_requests after they confirm sending a draft.',
-      '- If the user says "test", "send it here", "send to me", or similar, use create_payment_requests and present the request links in this same chat.',
-      '- Use resolve_contact when a name may need a saved phone/iMessage handle.',
-      '- Use save_contact when the user gives contact details.',
-      'Never block a shareable payment link on contact cards. Contact cards are only needed for direct iMessage delivery to someone else later.',
+      'Use agent-facing tools for product actions instead of doing split math or contact/payment policy in your own text.',
+      'Use draft_split when the user gives enough info to draft a split.',
+      'Use get_current_split_summary if the user is referring to an existing split and you need context.',
+      'Use send_payment_links_for_current_split after they confirm sending.',
+      'Use save_friend_contact only when the user shares contact details or asks for direct delivery.',
+      'When a tool returns suggestedReply, use it as the backbone of your answer. You may make it warmer, but do not add extra requirements.',
+      'Never block a shareable payment link on contact cards.',
       'Ask one casual follow-up if an expense is missing amount or people.',
       'For greetings or random chat, answer normally as Remy and invite them to text what they paid.',
       `Default payer name: ${payerName}.`,
@@ -474,6 +645,72 @@ function splitDraft(draft: ExpenseDraft): {
     includesPayer,
     requestPeople: includesPayer ? requestPeople : draft.people,
   }
+}
+
+function buildSplitSummary(draft: ExpenseDraft): SplitSummary {
+  const split = splitDraft(draft)
+  return {
+    title: draft.title,
+    payerName: draft.payerName,
+    total: draft.total,
+    splitMode: draft.splitMode,
+    perPersonAmount: split.each,
+    includesPayer: split.includesPayer,
+    requestCount: split.requestPeople.length,
+    participants: draft.people.map((name) => ({
+      name,
+      amount: split.each,
+      role: samePerson(name, draft.payerName) ? 'payer' : 'recipient',
+    })),
+  }
+}
+
+function getCurrentPaymentRequests(baseUrl?: string): PaymentRequest[] {
+  if (state.requests.length > 0) return state.requests
+
+  const stored = getStoredState()
+  const requests = stored.requests.map((request) => {
+    const card = new URL(`/card/${request.id}.svg`, baseUrl ?? publicBaseUrl())
+    return paymentRequestSchema.parse({
+      id: request.id,
+      uiVariant: parsePaymentUiVariant(request.uiVariant),
+      friendName: request.friendName,
+      amount: request.amount,
+      url: request.url,
+      cardUrl: card.toString(),
+      message: request.message,
+    })
+  })
+  state.requests = requests
+  return requests
+}
+
+function requestsMatchSplit(requests: PaymentRequest[], split: SplitSummary): boolean {
+  const recipients = split.participants.filter((participant) => participant.role === 'recipient')
+  if (requests.length !== recipients.length) return false
+
+  return recipients.every((participant) => requests.some((request) => (
+    samePerson(request.friendName, participant.name) &&
+    Math.abs(request.amount - participant.amount) < 0.01
+  )))
+}
+
+function parsePaymentUiVariant(value: string): PaymentRequest['uiVariant'] {
+  if (value === 'image_card' || value === 'conversational_minimal') return value
+  return 'link_preview'
+}
+
+function formatSplitSummary(split: SplitSummary): string {
+  const recipients = split.participants.filter((participant) => participant.role === 'recipient')
+  if (recipients.length === 0) {
+    return `${split.title}: $${split.total.toFixed(2)}. ${split.payerName} paid.`
+  }
+
+  const names = recipients.map((participant) => participant.name).join(', ')
+  const owe = recipients.length === 1 ? 'owes' : 'owe'
+  const each = recipients.length === 1 ? '' : ' each'
+  const payerContext = split.includesPayer ? `${split.payerName} paid. ` : ''
+  return `${split.title}: $${split.total.toFixed(2)}. ${payerContext}${names} ${owe} $${split.perPersonAmount.toFixed(2)}${each}.`
 }
 
 function samePerson(a: string, b: string): boolean {

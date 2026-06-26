@@ -6,9 +6,13 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import {
   createPaymentRequests,
+  draftSplitForAgent,
   expenseDraftSchema,
+  getCurrentSplitForAgent,
   getRemyState,
   runRemyAgent,
+  saveFriendContactForAgent,
+  sendPaymentLinksForCurrentSplit,
   understandExpenseMessage,
 } from './tools.ts'
 import {
@@ -66,6 +70,28 @@ export function createRemyMcpServer(): McpServer {
   )
 
   server.registerTool(
+    'save_friend_contact',
+    {
+      title: 'Save friend contact',
+      description: 'Agent-facing contact tool. Saves a friend contact only when the user shares details or wants direct delivery.',
+      inputSchema: {
+        displayName: z.string(),
+        alias: z.string().optional(),
+        phone: z.string().optional(),
+        imessageHandle: z.string().optional(),
+        preferredPayoutMethod: z.string().optional(),
+        payoutHandle: z.string().optional(),
+      },
+    },
+    async (input) => ({
+      content: [{
+        type: 'text',
+        text: JSON.stringify(saveFriendContactForAgent(input), null, 2),
+      }],
+    }),
+  )
+
+  server.registerTool(
     'run_remy_agent',
     {
       title: 'Run Remy agent',
@@ -98,6 +124,54 @@ export function createRemyMcpServer(): McpServer {
       content: [{
         type: 'text',
         text: JSON.stringify(await understandExpenseMessage({ text, payerName }), null, 2),
+      }],
+    }),
+  )
+
+  server.registerTool(
+    'draft_split',
+    {
+      title: 'Draft split',
+      description: 'Agent-facing split tool. Normalizes and stores a split draft, then returns summary, next action, facts, and suggested reply.',
+      inputSchema: expenseDraftSchema.shape,
+    },
+    async (draft) => ({
+      content: [{
+        type: 'text',
+        text: JSON.stringify(draftSplitForAgent(expenseDraftSchema.parse(draft)), null, 2),
+      }],
+    }),
+  )
+
+  server.registerTool(
+    'send_payment_links_for_current_split',
+    {
+      title: 'Send payment links for current split',
+      description: 'Agent-facing send tool. Creates tracked links for the active split, excludes the payer, records events, and returns a suggested reply.',
+      inputSchema: {
+        baseUrl: z.string().url().optional(),
+        forceVariant: z.enum(['link_preview', 'image_card', 'conversational_minimal']).optional(),
+      },
+    },
+    async ({ baseUrl, forceVariant }) => ({
+      content: [{
+        type: 'text',
+        text: JSON.stringify(sendPaymentLinksForCurrentSplit({ baseUrl, forceVariant }), null, 2),
+      }],
+    }),
+  )
+
+  server.registerTool(
+    'get_current_split_summary',
+    {
+      title: 'Get current split summary',
+      description: 'Agent-facing state tool. Returns the active split as summary, next action, suggested reply, facts, and existing requests.',
+      inputSchema: {},
+    },
+    async () => ({
+      content: [{
+        type: 'text',
+        text: JSON.stringify(getCurrentSplitForAgent(), null, 2),
       }],
     }),
   )

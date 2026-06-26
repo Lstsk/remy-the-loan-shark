@@ -4,12 +4,15 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { createMcpApp } from './mcp.ts'
 import {
   createPaymentRequests,
+  draftSplitForAgent,
   expenseDraftSchema,
   formatDraft,
   formatSentRequests,
   formatTestRequests,
+  getCurrentSplitForAgent,
   isLocalTestSend,
   isSendConfirmation,
+  sendPaymentLinksForCurrentSplit,
 } from './tools.ts'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -52,6 +55,23 @@ assert(payerIncludedRequests[0].friendName === 'James', 'friend should receive t
 assert(payerIncludedRequests[0].amount === 43, 'friend should owe their half when payer is included')
 assert(formatSentRequests(payerIncludedRequests).startsWith('Done. James owes $43.00'), 'sent reply should be concise')
 
+const agentDraft = draftSplitForAgent(payerIncludedDraft)
+assert(agentDraft.nextAction === 'confirm_send', 'agent draft tool should point to confirmation')
+assert(agentDraft.suggestedReply.includes('James owes $43.00'), 'agent draft tool should suggest a useful reply')
+assert(getCurrentSplitForAgent().summary.includes('James owes $43.00'), 'agent state tool should summarize the active split')
+const agentSend = sendPaymentLinksForCurrentSplit({
+  baseUrl: 'https://remy.test',
+  forceVariant: 'link_preview',
+})
+assert(agentSend.nextAction === 'payment_links_created', 'agent send tool should create links')
+assert(agentSend.facts.requests.length === 1, 'agent send tool should only request from James')
+assert(agentSend.suggestedReply.startsWith('Done. James owes $43.00'), 'agent send tool should suggest a send reply')
+const repeatedAgentSend = sendPaymentLinksForCurrentSplit({
+  baseUrl: 'https://remy.test',
+  forceVariant: 'image_card',
+})
+assert(repeatedAgentSend.facts.requests[0].url === agentSend.facts.requests[0].url, 'agent send tool should reuse existing links')
+
 const listener = localServe(createMcpApp().fetch)
 try {
   const client = new Client({ name: 'remy-verify', version: '0.1.0' })
@@ -61,6 +81,9 @@ try {
   const tools = await client.listTools()
   const toolNames = tools.tools.map((tool) => tool.name)
   assert(toolNames.includes('run_remy_agent'), 'missing run_remy_agent')
+  assert(toolNames.includes('draft_split'), 'missing draft_split')
+  assert(toolNames.includes('send_payment_links_for_current_split'), 'missing send_payment_links_for_current_split')
+  assert(toolNames.includes('get_current_split_summary'), 'missing get_current_split_summary')
   assert(toolNames.includes('understand_expense_message'), 'missing understand_expense_message')
   assert(toolNames.includes('create_payment_requests'), 'missing create_payment_requests')
   assert(toolNames.includes('get_remy_state'), 'missing get_remy_state')

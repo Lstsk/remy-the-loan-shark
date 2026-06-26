@@ -23,6 +23,17 @@ The agent reads credentials from `.env`.
 npm run verify
 ```
 
+## Agent Tools
+
+Remy’s agent-facing tools are shaped around conversation actions, not raw database operations:
+
+- `draft_split` stores a normalized split and returns `summary`, `nextAction`, `facts`, and `suggestedReply`.
+- `get_current_split_summary` gives the model compact state before it answers about an existing split.
+- `send_payment_links_for_current_split` creates or reuses tracked links, excludes the payer, records events, and returns a concise suggested reply.
+- `save_friend_contact` is only for shared contact details or direct delivery; contact cards never block shareable payment links.
+
+The model should use tool facts for correctness and use `suggestedReply` as the backbone for chat wording.
+
 ## Payment UI Experiment
 
 Remy can A/B test chat-native payment UI without requiring an iOS app install.
