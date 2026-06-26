@@ -68,6 +68,8 @@ assert(payerIncludedRequests.length === 1, 'payer should not receive a payment r
 assert(payerIncludedRequests[0].friendName === 'James', 'friend should receive the request')
 assert(payerIncludedRequests[0].amount === 43, 'friend should owe their half when payer is included')
 assert(formatSentRequests(payerIncludedRequests).startsWith('Done. James owes $43.00'), 'sent reply should be concise')
+assert(formatSentRequests(payerIncludedRequests).includes('https://remy.test/card'), 'sent reply should surface the payment card')
+assert(formatSentRequests(payerIncludedRequests).includes('Pay: https://remy.test/r'), 'sent reply should keep the tracked pay link')
 
 const agentDraft = draftSplitForAgent(payerIncludedDraft)
 assert(agentDraft.nextAction === 'confirm_send', 'agent draft tool should point to confirmation')
@@ -193,6 +195,13 @@ try {
   assert(cardResponse.headers.get('content-type')?.includes('image/svg+xml'), 'image-card route should serve SVG')
   const cardSvg = await cardResponse.text()
   assert(cardSvg.includes('Remy payment card'), 'image-card SVG should include accessible label')
+  assert(cardSvg.includes('Payment card ready'), 'image-card SVG should render the polished widget copy')
+
+  const idPayResponse = await fetch(`${listener.url}/pay/${requestId}`)
+  assert(idPayResponse.ok, 'id pay sheet should render')
+  const idPayHtml = await idPayResponse.text()
+  assert(idPayHtml.includes(`property="og:image" content="${listener.url}/card/${requestId}.svg"`), 'pay sheet should expose card metadata')
+  assert(idPayHtml.includes('Payment widget preview'), 'pay sheet should render the widget preview')
 
   const trackedResponse = await fetch(`${listener.url}/r/${requestId}`)
   assert(trackedResponse.ok, 'tracked pay redirect should resolve to pay sheet')

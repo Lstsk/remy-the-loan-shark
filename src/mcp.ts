@@ -316,9 +316,11 @@ export function createMcpApp(): Hono {
     const amount = parseAmount(c.req.query('amount'))
     const title = c.req.query('title') ?? undefined
     const view = findPaymentRequest({ friendName: friend, amount, title })
+    const requestId = view?.request.id
+    const baseUrl = publicUrlFromRequest(c.req.raw)
 
     return c.html(renderPaymentSheet({
-      requestId: view?.request.id,
+      requestId,
       friendName: view?.request.friendName ?? titleCase(friend ?? 'friend'),
       payerName: view?.expense.payerName ?? 'Carson',
       title: view?.expense.title ?? title ?? 'Expense',
@@ -331,6 +333,8 @@ export function createMcpApp(): Hono {
         status: participant.status,
       })) ?? [],
       message: view?.request.message,
+      cardUrl: requestId ? new URL(`/card/${requestId}.svg`, baseUrl).toString() : undefined,
+      canonicalUrl: requestId ? new URL(`/pay/${requestId}`, baseUrl).toString() : new URL(c.req.raw.url).toString(),
     }))
   })
 
@@ -340,6 +344,8 @@ export function createMcpApp(): Hono {
     const amount = parseAmount(c.req.query('amount'))
     const title = c.req.query('title') ?? undefined
     const view = findPaymentRequest({ id }) ?? findPaymentRequest({ friendName: friend, amount, title })
+    const requestId = view?.request.id ?? id
+    const baseUrl = publicUrlFromRequest(c.req.raw)
     if (view?.request.id) {
       recordPaymentRequestEvent({
         requestId: view.request.id,
@@ -350,7 +356,7 @@ export function createMcpApp(): Hono {
     }
 
     return c.html(renderPaymentSheet({
-      requestId: view?.request.id ?? id,
+      requestId,
       friendName: view?.request.friendName ?? titleCase(friend ?? 'friend'),
       payerName: view?.expense.payerName ?? 'Carson',
       title: view?.expense.title ?? title ?? 'Expense',
@@ -363,6 +369,8 @@ export function createMcpApp(): Hono {
         status: participant.status,
       })) ?? [],
       message: view?.request.message,
+      cardUrl: new URL(`/card/${requestId}.svg`, baseUrl).toString(),
+      canonicalUrl: new URL(`/pay/${requestId}`, baseUrl).toString(),
     }))
   })
 
@@ -478,39 +486,46 @@ function renderPaymentCardSvg(input: {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="Remy payment card">
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#f8fafc"/>
-      <stop offset="0.48" stop-color="#eef6f3"/>
-      <stop offset="1" stop-color="#f5f1ea"/>
+      <stop offset="0" stop-color="#fbfbfd"/>
+      <stop offset="0.54" stop-color="#eef7f5"/>
+      <stop offset="1" stop-color="#f6f1e8"/>
     </linearGradient>
-    <linearGradient id="glass" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.94"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.70"/>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.68"/>
+    </linearGradient>
+    <linearGradient id="pay" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#007aff"/>
+      <stop offset="1" stop-color="#10b981"/>
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="28" stdDeviation="32" flood-color="#15151a" flood-opacity="0.18"/>
+      <feDropShadow dx="0" dy="30" stdDeviation="36" flood-color="#15151a" flood-opacity="0.18"/>
     </filter>
   </defs>
   <rect width="1200" height="720" fill="url(#bg)"/>
-  <rect x="96" y="74" width="1008" height="572" rx="48" fill="url(#glass)" stroke="#ffffff" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="146" y="128" width="86" height="86" rx="26" fill="#111115"/>
-  <text x="209" y="194" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="44" font-weight="800">R</text>
-  <text x="264" y="170" fill="#686871" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26" font-weight="650">Remy verified split</text>
-  <text x="264" y="212" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="760">${friendName}</text>
-  <rect x="845" y="145" width="170" height="50" rx="25" fill="${statusFill}" fill-opacity="0.12"/>
-  <text x="930" y="179" text-anchor="middle" fill="${statusFill}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" font-weight="760">${escapeHtml(statusLabel)}</text>
-  <text x="146" y="340" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="116" font-weight="780">$${input.amount.toFixed(2)}</text>
-  <text x="152" y="400" fill="#686871" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="560">${payerName} paid for ${title}</text>
-  <rect x="748" y="260" width="248" height="226" rx="28" fill="#ffffff" stroke="#e7e7ed"/>
-  <rect x="785" y="296" width="174" height="18" rx="9" fill="#d8d8df"/>
-  <rect x="785" y="342" width="118" height="14" rx="7" fill="#ececf1"/>
-  <rect x="785" y="376" width="154" height="14" rx="7" fill="#ececf1"/>
-  <rect x="785" y="410" width="132" height="14" rx="7" fill="#ececf1"/>
-  <path d="M788 460 H956" stroke="#d8d8df" stroke-width="3" stroke-dasharray="10 10"/>
-  <text x="872" y="530" text-anchor="middle" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="760">receipt proof</text>
-  <line x1="146" y1="472" x2="690" y2="472" stroke="#e4e4ea" stroke-width="2"/>
-  <text x="146" y="540" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="700">${escapeHtml(statusText)}</text>
-  <text x="146" y="584" fill="#686871" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="520">Tap through to pay, mark paid, or ask for a review.</text>
-  <text x="1034" y="584" text-anchor="end" fill="#8b8b94" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="650">trymomento.app</text>
+  <rect x="104" y="78" width="992" height="564" rx="54" fill="url(#card)" stroke="#ffffff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="150" y="126" width="84" height="84" rx="24" fill="#111115"/>
+  <text x="192" y="182" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="42" font-weight="800">R</text>
+  <text x="260" y="164" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="700">Remy Split</text>
+  <text x="260" y="206" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="36" font-weight="760">${friendName}</text>
+  <rect x="852" y="136" width="178" height="52" rx="26" fill="${statusFill}" fill-opacity="0.12"/>
+  <text x="941" y="171" text-anchor="middle" fill="${statusFill}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" font-weight="760">${escapeHtml(statusLabel)}</text>
+
+  <text x="150" y="360" fill="#111115" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="124" font-weight="790">$${input.amount.toFixed(2)}</text>
+  <text x="156" y="420" fill="#5f6068" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="31" font-weight="560">${payerName} paid for ${title}</text>
+
+  <rect x="730" y="260" width="300" height="222" rx="34" fill="#ffffff" fill-opacity="0.76" stroke="#ffffff"/>
+  <text x="768" y="316" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" font-weight="700">split status</text>
+  <text x="768" y="364" fill="#111115" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="42" font-weight="780">${escapeHtml(statusText)}</text>
+  <rect x="768" y="398" width="224" height="16" rx="8" fill="#e5e5ea"/>
+  <rect x="768" y="398" width="${Math.max(24, Math.min(224, 224 * input.paidCount / Math.max(input.totalCount, 1)))}" height="16" rx="8" fill="url(#pay)"/>
+  <rect x="768" y="438" width="170" height="38" rx="19" fill="#007aff" fill-opacity="0.12"/>
+  <text x="853" y="464" text-anchor="middle" fill="#007aff" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="760">tap to pay</text>
+
+  <line x1="150" y1="500" x2="674" y2="500" stroke="#e1e1e7" stroke-width="2"/>
+  <text x="150" y="558" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="28" font-weight="720">Payment card ready</text>
+  <text x="150" y="598" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="23" font-weight="520">Open to pay, mark paid, or ask for a review.</text>
+  <text x="1032" y="598" text-anchor="end" fill="#8b8b94" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="23" font-weight="650">trymomento.app</text>
 </svg>`
 }
 
@@ -524,6 +539,8 @@ function renderPaymentSheet(input: {
   splitTotal?: number
   participants: Array<{ name: string; amount: number; status: string }>
   message?: string
+  cardUrl?: string
+  canonicalUrl?: string
 }): string {
   const statusLabel = input.status === 'paid'
     ? 'Paid'
@@ -541,6 +558,15 @@ function renderPaymentSheet(input: {
   const participants = input.participants.length > 0
     ? input.participants
     : [{ name: input.friendName, amount: input.amount, status: input.status }]
+  const imageMeta = input.cardUrl
+    ? `<meta property="og:image" content="${escapeHtml(input.cardUrl)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="${escapeHtml(input.cardUrl)}">`
+    : ''
+  const canonicalMeta = input.canonicalUrl
+    ? `<meta property="og:url" content="${escapeHtml(input.canonicalUrl)}">
+  <link rel="canonical" href="${escapeHtml(input.canonicalUrl)}">`
+    : ''
 
   return `<!doctype html>
 <html lang="en">
@@ -548,8 +574,10 @@ function renderPaymentSheet(input: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f5f5f7">
+  ${canonicalMeta}
   <meta property="og:title" content="${escapeHtml(input.friendName)} owes $${input.amount.toFixed(2)}">
   <meta property="og:description" content="${escapeHtml(input.payerName)} paid for ${escapeHtml(input.title)}. Powered by Remy.">
+  ${imageMeta}
   <title>Remy · ${escapeHtml(input.title)}</title>
   <style>
     :root {
@@ -657,6 +685,51 @@ function renderPaymentSheet(input: {
     .status.disputed { color: var(--orange); background: rgba(201,123,21,.13); }
     .status.unpaid { color: var(--blue); background: rgba(0,122,255,.12); }
     .content { padding: 14px; }
+    .widget {
+      margin: 14px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,.72);
+      border-radius: 24px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.88), rgba(255,255,255,.58)),
+        rgba(255,255,255,.58);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 18px 44px rgba(15,15,20,.10);
+    }
+    .widget-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 720;
+      margin-bottom: 14px;
+    }
+    .pill {
+      color: var(--blue);
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: rgba(0,122,255,.10);
+    }
+    .widget-main {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .widget-amount {
+      color: var(--ink);
+      font-size: 42px;
+      line-height: .95;
+      font-weight: 780;
+    }
+    .widget-copy {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.25;
+      text-align: right;
+      max-width: 156px;
+    }
     .section {
       background: rgba(255,255,255,.64);
       border: 1px solid var(--line);
@@ -720,6 +793,8 @@ function renderPaymentSheet(input: {
     }
     @media (max-width: 360px) {
       h1 { font-size: 44px; }
+      .widget-main { align-items: start; flex-direction: column; }
+      .widget-copy { text-align: left; max-width: none; }
       .paygrid { grid-template-columns: 1fr; }
     }
   </style>
@@ -735,6 +810,17 @@ function renderPaymentSheet(input: {
         <p class="subtitle">${escapeHtml(input.friendName)}, this is your split. Receipt proof and everyone’s status stay visible here.</p>
         <div class="status ${statusClass}">${statusLabel}</div>
       </header>
+
+      <section class="widget" aria-label="Payment widget preview">
+        <div class="widget-top">
+          <span>Remy Split</span>
+          <span class="pill">${escapeHtml(statusLabel)}</span>
+        </div>
+        <div class="widget-main">
+          <div class="widget-amount">$${input.amount.toFixed(2)}</div>
+          <div class="widget-copy">${escapeHtml(input.friendName)} owes for ${escapeHtml(input.title)}.</div>
+        </div>
+      </section>
 
       <div class="content">
         <section class="section">

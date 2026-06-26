@@ -786,15 +786,24 @@ export function formatSentRequests(requests: PaymentRequest[]): string {
 
   if (requests.length === 1) {
     const [request] = requests
-    return [
-      `Done. ${request.friendName} owes $${request.amount.toFixed(2)}:`,
-      request.url,
-    ].join('\n')
+    if (request.cardUrl) {
+      return [
+        `Done. ${request.friendName} owes $${request.amount.toFixed(2)}.`,
+        request.cardUrl,
+        `Pay: ${request.url}`,
+      ].join('\n')
+    }
+
+    return `Done. ${request.friendName} owes $${request.amount.toFixed(2)}: ${request.url}`
   }
 
   return [
-    'Done. Payment links:',
-    ...requests.map((request) => `${request.friendName}: $${request.amount.toFixed(2)} ${request.url}`),
+    'Done. Payment cards:',
+    ...requests.map((request) => [
+      `${request.friendName}: $${request.amount.toFixed(2)}`,
+      request.cardUrl ?? request.url,
+      request.cardUrl ? `Pay: ${request.url}` : undefined,
+    ].filter(Boolean).join('\n')),
   ].join('\n')
 }
 
