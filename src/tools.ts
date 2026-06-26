@@ -193,70 +193,26 @@ function model() {
 }
 
 function cleanName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ')
-}
-
-function titleCaseName(value: string): string {
-  return cleanName(value)
-    .split(/\s+/)
-    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1) : part)
-    .join(' ')
+  return value.trim()
 }
 
 function uniqueNames(names: string[]): string[] {
   const result: string[] = []
-  for (const name of names.map(titleCaseName).filter(Boolean)) {
+  for (const name of names.map(cleanName).filter(Boolean)) {
     if (!result.some((existing) => samePerson(existing, name))) result.push(name)
   }
   return result
 }
 
-const nonPersonParticipantWords = new Set([
-  'and',
-  'amount',
-  'bucks',
-  'buck',
-  'can',
-  'could',
-  'dollar',
-  'dollars',
-  'evenly',
-  'for',
-  'half',
-  'me',
-  'myself',
-  'paid',
-  'please',
-  'split',
-  'the',
-  'today',
-  'tomorrow',
-  'tonight',
-  'total',
-  'us',
-  'was',
-  'we',
-  'were',
-  'yesterday',
-])
-
-function isNonPersonParticipant(name: string): boolean {
-  const normalized = cleanName(name)
-    .toLowerCase()
-    .replace(/[^a-z\s'-]/g, '')
-  return nonPersonParticipantWords.has(normalized)
-}
-
 function normalizeDraftTitle(value: string): string {
-  const title = value.trim().replace(/\s+/g, ' ')
-  if (!title || /^expense$/i.test(title)) return 'Shared expense'
+  const title = value.trim()
+  if (!title || title.toLowerCase() === 'expense') return 'Shared expense'
   return title
 }
 
 function normalizeAgentDraft(draft: ExpenseDraft): ExpenseDraft {
   const payerName = cleanName(draft.payerName) || 'Carson'
   const people = uniqueNames(draft.people)
-    .filter((name) => samePerson(name, payerName) || !isNonPersonParticipant(name))
   const includesPayer = people.some((name) => samePerson(name, payerName))
   const normalizedPeople = includesPayer ? people : [payerName, ...people]
 
@@ -319,29 +275,6 @@ function suggestedReplyFromToolResults(toolResults: Array<{ output: unknown }>):
     }
   }
   return null
-}
-
-export async function understandExpenseMessage(input: {
-  text: string
-  payerName?: string
-}): Promise<ExpenseDraft> {
-  const { text } = await generateText({
-    model: model(),
-    prompt: [
-      'Extract one friend expense from this iMessage.',
-      'Return only valid JSON. No markdown. No commentary.',
-      'Use this exact shape:',
-      '{"title":"Dinner","payerName":"Carson","total":86,"people":["Carson","Alex","Brian"],"splitMode":"equal","confidence":0.9}',
-      'For equal splits, people must include the payer plus everyone who shared the expense.',
-      'Do not invent missing amounts or people.',
-      `Default payerName: ${input.payerName ?? 'Carson'}.`,
-      `Message: ${input.text}`,
-    ].join('\n'),
-  })
-
-  const draft = normalizeAgentDraft(expenseDraftSchema.parse(parseJsonObject(text)))
-  rememberDraft(draft)
-  return draft
 }
 
 export function rememberDraft(draft: ExpenseDraft, scope: AgentScope = {}): void {
@@ -761,27 +694,6 @@ function draftFromStoredExpense(scope: AgentScope = {}): ExpenseDraft | null {
     splitMode: current.expense.splitMode,
     confidence: current.expense.confidence,
   })
-}
-
-function parseJsonObject(text: string): unknown {
-  const trimmed = text.trim()
-  const unfenced = trimmed
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim()
-  const start = unfenced.indexOf('{')
-  const end = unfenced.lastIndexOf('}')
-
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error(`DeepSeek did not return JSON: ${trimmed.slice(0, 160)}`)
-  }
-
-  const parsed = JSON.parse(unfenced.slice(start, end + 1))
-  if (parsed?.error) {
-    throw new Error(`DeepSeek could not extract expense: ${parsed.error}`)
-  }
-
-  return parsed
 }
 
 export function createPaymentRequests(input: {

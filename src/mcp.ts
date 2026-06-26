@@ -15,7 +15,6 @@ import {
   runRemyAgent,
   saveFriendContactForAgent,
   sendPaymentLinksForCurrentSplit,
-  understandExpenseMessage,
 } from './tools.ts'
 import {
   findPaymentRequest,
@@ -117,24 +116,6 @@ export function createRemyMcpServer(): McpServer {
       content: [{
         type: 'text',
         text: await runRemyAgent({ text, payerName, baseUrl, ownerUserId, conversationId }),
-      }],
-    }),
-  )
-
-  server.registerTool(
-    'understand_expense_message',
-    {
-      title: 'Understand expense message',
-      description: 'Extract an expense draft from a casual iMessage like "paid $86 dinner with Alex Brian Sam".',
-      inputSchema: {
-        text: z.string(),
-        payerName: z.string().default('Carson'),
-      },
-    },
-    async ({ text, payerName }) => ({
-      content: [{
-        type: 'text',
-        text: JSON.stringify(await understandExpenseMessage({ text, payerName }), null, 2),
       }],
     }),
   )

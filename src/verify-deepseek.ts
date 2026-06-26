@@ -1,34 +1,31 @@
 import { loadEnv } from './env.ts'
-import { getRemyState, runRemyAgent, understandExpenseMessage } from './tools.ts'
+import { getRemyState, runRemyAgent } from './tools.ts'
 
 loadEnv()
 
 const startedAt = Date.now()
-const draft = await understandExpenseMessage({
-  text: 'paid $86 dinner with Alex Brian Sam',
-  payerName: 'Carson',
-})
-
-if (draft.total !== 86) throw new Error(`Expected total 86, got ${draft.total}`)
-if (!draft.people.map((person) => person.toLowerCase()).includes('alex')) {
-  throw new Error(`Expected Alex in people, got ${draft.people.join(', ')}`)
-}
-
-console.log(`PASS DeepSeek expense understanding in ${Date.now() - startedAt}ms.`)
-
 const chatReply = await runRemyAgent({
   text: 'hey what are you',
   payerName: 'Carson',
+  ownerUserId: `verify-live-chat-${startedAt}`,
+  conversationId: 'chat',
 })
 if (chatReply.length < 8 || chatReply.toLowerCase().includes('missing')) {
   throw new Error(`Expected casual Remy chat reply, got ${chatReply}`)
 }
 
+const draftScope = {
+  ownerUserId: `verify-live-draft-${startedAt}`,
+  conversationId: 'draft',
+}
 const draftReply = await runRemyAgent({
+  ...draftScope,
   text: 'paid $42 uber with Alex Sam',
   payerName: 'Carson',
   baseUrl: 'https://remy.test',
 })
-if (!getRemyState().currentDraft) {
+if (!getRemyState(draftScope).currentDraft) {
   throw new Error(`Expected tool-called draft, got reply: ${draftReply}`)
 }
+
+console.log(`PASS DeepSeek Remy agent tool path in ${Date.now() - startedAt}ms.`)

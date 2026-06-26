@@ -147,17 +147,6 @@ const revisedSend = sendPaymentLinksForCurrentSplit({
 assert(revisedSend.facts.requests.length === 1, 'revised split should send one request')
 assert(revisedSend.facts.requests[0].amount === 43.5, 'revised split request should be half of 87')
 
-const noisyToolDraft = draftSplitForAgent(expenseDraftSchema.parse({
-  title: 'Dinner',
-  payerName: 'Carson',
-  total: 90,
-  people: ['James', 'today', 'the', 'was', 'can', 'we', 'half'],
-  splitMode: 'equal',
-  confidence: 0.6,
-}), { ownerUserId: scopeOwner, conversationId: 'noisy-tool-chat' })
-assert(noisyToolDraft.facts.split.participants.length === 2, 'draft tool should filter obvious filler participants')
-assert(noisyToolDraft.summary.includes('James owes $45.00'), 'draft tool should keep the actual participant')
-
 const listener = localServe(createMcpApp().fetch)
 try {
   const client = new Client({ name: 'remy-verify', version: '0.1.0' })
@@ -171,7 +160,6 @@ try {
   assert(toolNames.includes('revise_current_split'), 'missing revise_current_split')
   assert(toolNames.includes('send_payment_links_for_current_split'), 'missing send_payment_links_for_current_split')
   assert(toolNames.includes('get_current_split_summary'), 'missing get_current_split_summary')
-  assert(toolNames.includes('understand_expense_message'), 'missing understand_expense_message')
   assert(toolNames.includes('create_payment_requests'), 'missing create_payment_requests')
   assert(toolNames.includes('get_remy_state'), 'missing get_remy_state')
 
