@@ -22,12 +22,12 @@ import {
 } from './db/repository.ts'
 
 export const expenseDraftSchema = z.object({
-  title: z.string().default('Expense'),
-  payerName: z.string().default('Carson'),
-  total: z.number().positive(),
-  people: z.array(z.string().min(1)).min(1),
-  splitMode: z.enum(['equal', 'custom', 'itemized']).default('equal'),
-  confidence: z.number().min(0).max(1).default(0.8),
+  title: z.string().default('Expense').describe('Short label for what was paid for, like Dinner, Lunch, Uber, Drinks, Groceries.'),
+  payerName: z.string().default('Carson').describe('Person who paid up front. Default to Carson unless the user says someone else paid.'),
+  total: z.number().positive().describe('Total amount paid before splitting.'),
+  people: z.array(z.string().min(1)).min(1).describe('Only actual people who shared the expense. Include the payer when you know them. Do not include filler words like today, total, can, we, split, half, was, the.'),
+  splitMode: z.enum(['equal', 'custom', 'itemized']).default('equal').describe('Use equal for normal casual splits.'),
+  confidence: z.number().min(0).max(1).default(0.8).describe('How confident the agent is that the extracted split is right.'),
 })
 
 export const reviseSplitSchema = z.object({
@@ -211,6 +211,42 @@ function uniqueNames(names: string[]): string[] {
   return result
 }
 
+const nonPersonParticipantWords = new Set([
+  'and',
+  'amount',
+  'bucks',
+  'buck',
+  'can',
+  'could',
+  'dollar',
+  'dollars',
+  'evenly',
+  'for',
+  'half',
+  'me',
+  'myself',
+  'paid',
+  'please',
+  'split',
+  'the',
+  'today',
+  'tomorrow',
+  'tonight',
+  'total',
+  'us',
+  'was',
+  'we',
+  'were',
+  'yesterday',
+])
+
+function isNonPersonParticipant(name: string): boolean {
+  const normalized = cleanName(name)
+    .toLowerCase()
+    .replace(/[^a-z\s'-]/g, '')
+  return nonPersonParticipantWords.has(normalized)
+}
+
 function normalizeDraftTitle(value: string): string {
   const title = value.trim().replace(/\s+/g, ' ')
   if (!title || /^expense$/i.test(title)) return 'Shared expense'
@@ -220,6 +256,7 @@ function normalizeDraftTitle(value: string): string {
 function normalizeAgentDraft(draft: ExpenseDraft): ExpenseDraft {
   const payerName = cleanName(draft.payerName) || 'Carson'
   const people = uniqueNames(draft.people)
+    .filter((name) => samePerson(name, payerName) || !isNonPersonParticipant(name))
   const includesPayer = people.some((name) => samePerson(name, payerName))
   const normalizedPeople = includesPayer ? people : [payerName, ...people]
 
@@ -266,64 +303,6 @@ function currentStateContext(scope: AgentScope): string {
   const draft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
   if (!draft) return 'Current active split: none.'
   return `Current active split: ${formatSplitSummary(buildSplitSummary(draft))}`
-}
-
-function firstNameTokens(value: string): string[] {
-  return value
-    .replace(/\b(total|bucks?|dollars?|usd|for|split|between|among|and|me|myself)\b/gi, ' ')
-    .replace(/\$?\d+(?:\.\d{1,2})?/g, ' ')
-    .split(/[,\s]+/)
-    .map(cleanName)
-    .filter((token) => /^[a-z][a-z.'-]*$/i.test(token))
-}
-
-function stripAmountWords(value: string): string {
-  return value
-    .replace(/\$?\d+(?:\.\d{1,2})?\s*(?:bucks?|dollars?|usd)?/gi, ' ')
-    .replace(/\b(total|for|paid|i|split|bill|was)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function titleFromCasualText(value: string): string {
-  const beforeWith = value.split(/\bwith\b/i)[0] ?? value
-  const title = stripAmountWords(beforeWith)
-    .replace(/^for\s+/i, '')
-    .trim()
-  return title ? title.charAt(0).toUpperCase() + title.slice(1) : 'Shared expense'
-}
-
-function draftFromCasualText(text: string, payerName: string): ExpenseDraft | null {
-  const normalized = text.trim()
-  const halfMatch = normalized.match(/\b([a-z][a-z.'-]*)\s+needs?\s+to\s+pay\s+me\s+half\s+of\s+\$?(\d+(?:\.\d{1,2})?)/i)
-  if (halfMatch) {
-    return expenseDraftSchema.parse({
-      title: 'Shared expense',
-      payerName,
-      total: Number(halfMatch[2]),
-      people: [payerName, cleanName(halfMatch[1])],
-      splitMode: 'equal',
-      confidence: 0.78,
-    })
-  }
-
-  if (!/\bpaid\b/i.test(normalized) || !/\bwith\b/i.test(normalized)) return null
-
-  const amountMatch = normalized.match(/\$?\b(\d+(?:\.\d{1,2})?)\s*(?:bucks?|dollars?|usd)?\b/i)
-  if (!amountMatch) return null
-
-  const withPart = normalized.split(/\bwith\b/i).slice(1).join(' with ')
-  const people = firstNameTokens(withPart)
-  if (people.length === 0) return null
-
-  return expenseDraftSchema.parse({
-    title: titleFromCasualText(normalized),
-    payerName,
-    total: Number(amountMatch[1]),
-    people,
-    splitMode: 'equal',
-    confidence: 0.82,
-  })
 }
 
 function suggestedReplyFromToolResults(toolResults: Array<{ output: unknown }>): string | null {
@@ -624,35 +603,6 @@ export async function runRemyAgent(input: {
   }
   rememberUserMessage(input.text, scope)
 
-  const existingDraft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
-  if (existingDraft && isSendConfirmation(input.text)) {
-    return rememberAssistantReply(sendPaymentLinksForCurrentSplit({
-      baseUrl: input.baseUrl ?? publicBaseUrl(),
-      ownerUserId: input.ownerUserId,
-      conversationId: input.conversationId,
-    }).suggestedReply, scope)
-  }
-
-  const wantsLocalTestSend = isLocalTestSend(input.text)
-  if (wantsLocalTestSend) {
-    const draft = existingDraft
-    if (!draft) {
-      return rememberAssistantReply('Send me a split first, then say “test send it here.”', scope)
-    }
-
-    return rememberAssistantReply(formatTestRequests(createPaymentRequests({
-      draft,
-      baseUrl: input.baseUrl ?? publicBaseUrl(),
-      ownerUserId: input.ownerUserId,
-      conversationId: input.conversationId,
-    })), scope)
-  }
-
-  const directDraft = draftFromCasualText(input.text, payerName)
-  if (directDraft) {
-    return rememberAssistantReply(draftSplitForAgent(directDraft, scope).suggestedReply, scope)
-  }
-
   const result = await generateText({
     model: model(),
     system: [
@@ -663,7 +613,7 @@ export async function runRemyAgent(input: {
     stopWhen: stepCountIs(4),
     tools: {
       draft_split: tool({
-        description: 'Normalize and store a split draft. Use when the user gives amount plus who shared it, even if title is vague. The tool owns split math, payer handling, and the suggested reply. Examples: "paid 87 dinner with James" -> title Dinner, total 87, payerName Carson, people Carson and James. "James needs to pay half of 87" -> total 87, people Carson and James.',
+        description: 'Create or replace the active split draft when the user gives enough info. Pass the clean facts you understood: short title, total, payerName, and actual people only. The tool handles payer inclusion, split math, storage, and the user-facing suggested reply.',
         inputSchema: expenseDraftSchema.extend({
           payerName: z.string().default(payerName),
         }),
@@ -761,14 +711,6 @@ export function enforcePlainTextReply(reply: string): string {
   )
 }
 
-export function isLocalTestSend(text: string): boolean {
-  return /\b(test|demo|preview|try it|send it here|send here|send to me|send them here|show me|link here)\b/i.test(text)
-}
-
-export function isSendConfirmation(text: string): boolean {
-  return /^(yes|yep|yeah|sure|ok|okay|send|send it|do it|please do|go ahead|sounds good|lets do it|let's do it)[.! ]*$/i.test(text.trim())
-}
-
 export function formatTestRequests(requests: PaymentRequest[]): string {
   return [
     'Test variants ready.',
@@ -788,7 +730,7 @@ export function formatSentRequests(requests: PaymentRequest[]): string {
     const [request] = requests
     if (request.cardUrl) {
       return [
-        `Done. ${request.friendName} owes $${request.amount.toFixed(2)}.`,
+        `Done. Payment card for ${request.friendName}: $${request.amount.toFixed(2)}`,
         request.cardUrl,
         `Pay: ${request.url}`,
       ].join('\n')

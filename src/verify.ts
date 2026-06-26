@@ -11,10 +11,7 @@ import {
   formatSentRequests,
   formatTestRequests,
   getCurrentSplitForAgent,
-  isLocalTestSend,
-  isSendConfirmation,
   reviseCurrentSplitForAgent,
-  runRemyAgent,
   sendPaymentLinksForCurrentSplit,
 } from './tools.ts'
 import {
@@ -38,8 +35,6 @@ const draft = expenseDraftSchema.parse({
 const requests = createPaymentRequests({ draft, baseUrl: 'https://remy.test', forceVariant: 'image_card' })
 assert(requests.length === 3, 'expected three payment requests')
 assert(formatDraft(draft).includes('Reply yes'), 'draft reply should ask for confirmation')
-assert(isLocalTestSend('test send it here'), 'test send phrase should enable local test mode')
-assert(isSendConfirmation('Yes'), 'yes should send the current draft')
 assert(formatTestRequests(requests).includes('Test variants ready'), 'test requests should say test variants are ready')
 assert(formatTestRequests(requests).includes('https://remy.test/r'), 'test requests should include tracked pay links')
 assert(formatTestRequests(requests).includes('https://remy.test/card'), 'image-card variant should include card links')
@@ -67,7 +62,7 @@ const payerIncludedRequests = createPaymentRequests({
 assert(payerIncludedRequests.length === 1, 'payer should not receive a payment request')
 assert(payerIncludedRequests[0].friendName === 'James', 'friend should receive the request')
 assert(payerIncludedRequests[0].amount === 43, 'friend should owe their half when payer is included')
-assert(formatSentRequests(payerIncludedRequests).startsWith('Done. James owes $43.00'), 'sent reply should be concise')
+assert(formatSentRequests(payerIncludedRequests).startsWith('Done. Payment card for James: $43.00'), 'sent reply should surface a payment card')
 assert(formatSentRequests(payerIncludedRequests).includes('https://remy.test/card'), 'sent reply should surface the payment card')
 assert(formatSentRequests(payerIncludedRequests).includes('Pay: https://remy.test/r'), 'sent reply should keep the tracked pay link')
 
@@ -81,7 +76,7 @@ const agentSend = sendPaymentLinksForCurrentSplit({
 })
 assert(agentSend.nextAction === 'payment_links_created', 'agent send tool should create links')
 assert(agentSend.facts.requests.length === 1, 'agent send tool should only request from James')
-assert(agentSend.suggestedReply.startsWith('Done. James owes $43.00'), 'agent send tool should suggest a send reply')
+assert(agentSend.suggestedReply.startsWith('Done. Payment card for James: $43.00'), 'agent send tool should suggest a card reply')
 const repeatedAgentSend = sendPaymentLinksForCurrentSplit({
   baseUrl: 'https://remy.test',
   forceVariant: 'image_card',
@@ -152,16 +147,16 @@ const revisedSend = sendPaymentLinksForCurrentSplit({
 assert(revisedSend.facts.requests.length === 1, 'revised split should send one request')
 assert(revisedSend.facts.requests[0].amount === 43.5, 'revised split request should be half of 87')
 
-const directScope = { ownerUserId: scopeOwner, conversationId: 'direct-chat' }
-const directReply = await runRemyAgent({
-  ...directScope,
-  text: 'I paid for dinner with james 80 bucks total',
+const noisyToolDraft = draftSplitForAgent(expenseDraftSchema.parse({
+  title: 'Dinner',
   payerName: 'Carson',
-  baseUrl: 'https://remy.test',
-})
-assert(directReply.includes('Dinner: $80.00'), 'direct parser should draft the dinner split')
-assert(directReply.includes('James owes $40.00'), 'direct parser should split between payer and James')
-assert(getCurrentSplitForAgent(directScope).summary.includes('James owes $40.00'), 'direct parser should store current split')
+  total: 90,
+  people: ['James', 'today', 'the', 'was', 'can', 'we', 'half'],
+  splitMode: 'equal',
+  confidence: 0.6,
+}), { ownerUserId: scopeOwner, conversationId: 'noisy-tool-chat' })
+assert(noisyToolDraft.facts.split.participants.length === 2, 'draft tool should filter obvious filler participants')
+assert(noisyToolDraft.summary.includes('James owes $45.00'), 'draft tool should keep the actual participant')
 
 const listener = localServe(createMcpApp().fetch)
 try {
