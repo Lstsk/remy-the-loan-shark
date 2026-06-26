@@ -2,7 +2,15 @@ import { serve } from '@hono/node-server'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { createMcpApp } from './mcp.ts'
-import { createPaymentRequests, expenseDraftSchema, formatDraft, formatTestRequests, isLocalTestSend } from './tools.ts'
+import {
+  createPaymentRequests,
+  expenseDraftSchema,
+  formatDraft,
+  formatSentRequests,
+  formatTestRequests,
+  isLocalTestSend,
+  isSendConfirmation,
+} from './tools.ts'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -21,9 +29,28 @@ const requests = createPaymentRequests({ draft, baseUrl: 'https://remy.test', fo
 assert(requests.length === 3, 'expected three payment requests')
 assert(formatDraft(draft).includes('Reply yes'), 'draft reply should ask for confirmation')
 assert(isLocalTestSend('test send it here'), 'test send phrase should enable local test mode')
+assert(isSendConfirmation('Yes'), 'yes should send the current draft')
 assert(formatTestRequests(requests).includes('Test variants ready'), 'test requests should say test variants are ready')
 assert(formatTestRequests(requests).includes('https://remy.test/r'), 'test requests should include tracked pay links')
 assert(formatTestRequests(requests).includes('https://remy.test/card'), 'image-card variant should include card links')
+
+const payerIncludedDraft = expenseDraftSchema.parse({
+  title: 'Dinner',
+  payerName: 'Carson',
+  total: 86,
+  people: ['Carson', 'James'],
+  splitMode: 'equal',
+  confidence: 0.9,
+})
+const payerIncludedRequests = createPaymentRequests({
+  draft: payerIncludedDraft,
+  baseUrl: 'https://remy.test',
+  forceVariant: 'link_preview',
+})
+assert(payerIncludedRequests.length === 1, 'payer should not receive a payment request')
+assert(payerIncludedRequests[0].friendName === 'James', 'friend should receive the request')
+assert(payerIncludedRequests[0].amount === 43, 'friend should owe their half when payer is included')
+assert(formatSentRequests(payerIncludedRequests).startsWith('Done. James owes $43.00'), 'sent reply should be concise')
 
 const listener = localServe(createMcpApp().fetch)
 try {

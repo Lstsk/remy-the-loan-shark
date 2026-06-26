@@ -162,6 +162,7 @@ export function saveExpenseDraft(draft: ExpenseDraft, ownerUserId = defaultOwner
 
   const each = Math.round((draft.total / draft.people.length) * 100) / 100
   const participants = draft.people.map((displayName, index) => {
+    const isPayer = normalizeAlias(displayName) === normalizeAlias(draft.payerName)
     const resolved = resolveContact(displayName, ownerUserId)
     return {
       id: randomUUID(),
@@ -171,7 +172,7 @@ export function saveExpenseDraft(draft: ExpenseDraft, ownerUserId = defaultOwner
       amount: index === draft.people.length - 1
         ? Math.round((draft.total - each * (draft.people.length - 1)) * 100) / 100
         : each,
-      status: 'unpaid',
+      status: isPayer ? 'paid' : 'unpaid',
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -225,6 +226,7 @@ export function getMissingContactsForCurrent(ownerUserId = defaultOwnerUserId): 
 
   return current.participants
     .filter((participant) => !participant.contactId)
+    .filter((participant) => normalizeAlias(participant.displayName) !== normalizeAlias(current.expense.payerName))
     .map((participant) => participant.displayName)
 }
 

@@ -109,7 +109,8 @@ export async function understandExpenseMessage(input: {
       'Extract one friend expense from this iMessage.',
       'Return only valid JSON. No markdown. No commentary.',
       'Use this exact shape:',
-      '{"title":"Dinner","payerName":"Carson","total":86,"people":["Alex","Brian"],"splitMode":"equal","confidence":0.9}',
+      '{"title":"Dinner","payerName":"Carson","total":86,"people":["Carson","Alex","Brian"],"splitMode":"equal","confidence":0.9}',
+      'For equal splits, people must include the payer plus everyone who shared the expense.',
       'Do not invent missing amounts or people.',
       `Default payerName: ${input.payerName ?? 'Carson'}.`,
       `Message: ${input.text}`,
@@ -133,9 +134,17 @@ export async function runRemyAgent(input: {
   baseUrl?: string
 }): Promise<string> {
   const payerName = input.payerName ?? 'Carson'
+  const existingDraft = state.currentDraft ?? draftFromStoredExpense()
+  if (existingDraft && isSendConfirmation(input.text)) {
+    return formatSentRequests(createPaymentRequests({
+      draft: existingDraft,
+      baseUrl: input.baseUrl ?? publicBaseUrl(),
+    }))
+  }
+
   const wantsLocalTestSend = isLocalTestSend(input.text)
   if (wantsLocalTestSend) {
-    const draft = state.currentDraft ?? draftFromStoredExpense()
+    const draft = existingDraft
     if (!draft) {
       return 'Send me a split first, then say “test send it here.”'
     }
@@ -151,7 +160,7 @@ export async function runRemyAgent(input: {
     stopWhen: stepCountIs(4),
     tools: {
       draft_expense: tool({
-        description: 'Draft a split when the user gives enough expense details: amount, what it was for, and who should pay back.',
+        description: 'Draft a split when the user gives enough expense details: amount, what it was for, and who shared it. Include the payer in people for equal splits.',
         inputSchema: expenseDraftSchema.extend({
           payerName: z.string().default(payerName),
         }),
@@ -165,19 +174,11 @@ export async function runRemyAgent(input: {
         },
       }),
       create_payment_requests: tool({
-        description: 'Create payment request messages after the payer confirms they want to send the current draft. If contacts are missing, ask for contact cards unless this is a local test send.',
+        description: 'Create shareable payment request links after the payer confirms they want to send the current draft.',
         inputSchema: z.object({}),
         execute: async () => {
           if (!state.currentDraft) {
             return { error: 'No current draft. Ask what they paid first.' }
-          }
-
-          const missingContacts = getMissingContactsForCurrent()
-          if (missingContacts.length > 0 && !wantsLocalTestSend) {
-            return {
-              missingContacts,
-              message: `I can’t see your iPhone Contacts yet. Share ${missingContacts.join(', ')}’s contact card here once, then I can send the requests.`,
-            }
           }
 
           const requests = createPaymentRequests({
@@ -187,10 +188,7 @@ export async function runRemyAgent(input: {
 
           return {
             requests,
-            message: wantsLocalTestSend ? formatTestRequests(requests) : [
-              'Requests ready.',
-              ...requests.map(formatPaymentRequestForChat),
-            ].join('\n'),
+            message: wantsLocalTestSend ? formatTestRequests(requests) : formatSentRequests(requests),
           }
         },
       }),
@@ -233,10 +231,10 @@ export async function runRemyAgent(input: {
       '- Use draft_expense when the user gives enough info to draft a split.',
       '- Use get_current_draft if the user says yes/send/pay and you need to know what they are confirming.',
       '- Use create_payment_requests after they confirm sending a draft.',
-      '- If the user says "test", "send it here", "send to me", or similar, use create_payment_requests and present the request links in this same chat, even if contacts are missing.',
+      '- If the user says "test", "send it here", "send to me", or similar, use create_payment_requests and present the request links in this same chat.',
       '- Use resolve_contact when a name may need a saved phone/iMessage handle.',
       '- Use save_contact when the user gives contact details.',
-      'If contact info is missing, never say the user does not have contacts. Say Remy cannot see their iPhone Contacts yet and ask them to share the contact card in this chat once.',
+      'Never block a shareable payment link on contact cards. Contact cards are only needed for direct iMessage delivery to someone else later.',
       'Ask one casual follow-up if an expense is missing amount or people.',
       'For greetings or random chat, answer normally as Remy and invite them to text what they paid.',
       `Default payer name: ${payerName}.`,
@@ -251,6 +249,10 @@ export function isLocalTestSend(text: string): boolean {
   return /\b(test|demo|preview|try it|send it here|send here|send to me|send them here|show me|link here)\b/i.test(text)
 }
 
+export function isSendConfirmation(text: string): boolean {
+  return /^(yes|yep|yeah|sure|ok|okay|send|send it|do it|please do|go ahead|sounds good|lets do it|let's do it)[.! ]*$/i.test(text.trim())
+}
+
 export function formatTestRequests(requests: PaymentRequest[]): string {
   return [
     'Test variants ready.',
@@ -258,6 +260,25 @@ export function formatTestRequests(requests: PaymentRequest[]): string {
     ...requests.map(formatPaymentRequestForChat),
     '',
     'In production, each person gets only their own variant.',
+  ].join('\n')
+}
+
+export function formatSentRequests(requests: PaymentRequest[]): string {
+  if (requests.length === 0) {
+    return 'I don’t see anyone else to request from on this split.'
+  }
+
+  if (requests.length === 1) {
+    const [request] = requests
+    return [
+      `Done. ${request.friendName} owes $${request.amount.toFixed(2)}:`,
+      request.url,
+    ].join('\n')
+  }
+
+  return [
+    'Done. Payment links:',
+    ...requests.map((request) => `${request.friendName}: $${request.amount.toFixed(2)} ${request.url}`),
   ].join('\n')
 }
 
@@ -302,13 +323,13 @@ export function createPaymentRequests(input: {
   forceVariant?: PaymentRequest['uiVariant']
 }): PaymentRequest[] {
   const baseUrl = input.baseUrl ?? publicBaseUrl()
-  const each = Math.round((input.draft.total / input.draft.people.length) * 100) / 100
-  const requests = input.draft.people.map((friendName, index) => {
+  const split = splitDraft(input.draft)
+  const requests = split.requestPeople.map((friendName, index) => {
     const id = randomUUID()
     const uiVariant = input.forceVariant ?? selectPaymentUiVariant(`${input.draft.title}:${friendName}:${index}`)
     const pay = new URL(`/r/${id}`, baseUrl)
     pay.searchParams.set('friend', friendName.toLowerCase())
-    pay.searchParams.set('amount', each.toFixed(2))
+    pay.searchParams.set('amount', split.each.toFixed(2))
     pay.searchParams.set('title', input.draft.title)
     const card = new URL(`/card/${id}.svg`, baseUrl)
 
@@ -316,7 +337,7 @@ export function createPaymentRequests(input: {
       id,
       uiVariant,
       friendName,
-      amount: each,
+      amount: split.each,
       url: pay.toString(),
       cardUrl: card.toString(),
       message: formatPaymentRequestMessage({
@@ -326,7 +347,7 @@ export function createPaymentRequests(input: {
           id,
           uiVariant,
           friendName,
-          amount: each,
+          amount: split.each,
           url: pay.toString(),
           cardUrl: card.toString(),
         },
@@ -427,12 +448,34 @@ export function getRemyState() {
 }
 
 export function formatDraft(draft: ExpenseDraft): string {
-  const each = draft.total / draft.people.length
-  const lines = draft.people.map((name) => `${name}: $${each.toFixed(2)}`)
+  const split = splitDraft(draft)
+  const requestNames = split.requestPeople.join(', ')
+  const paidLine = split.includesPayer
+    ? `${draft.payerName} paid. ${requestNames || 'No one else'} ${split.requestPeople.length === 1 ? 'owes' : 'owe'} $${split.each.toFixed(2)}${split.requestPeople.length > 1 ? ' each' : ''}.`
+    : `${requestNames} ${split.requestPeople.length === 1 ? 'owes' : 'owe'} $${split.each.toFixed(2)}${split.requestPeople.length > 1 ? ' each' : ''}.`
   return [
-    `Got it. ${draft.payerName} paid $${draft.total.toFixed(2)} for ${draft.title.toLowerCase()}.`,
-    ...lines,
-    '',
-    'Reply yes to send requests.',
+    `${draft.title}: $${draft.total.toFixed(2)}`,
+    paidLine,
+    'Reply yes and I’ll make the payment link.',
   ].join('\n')
+}
+
+function splitDraft(draft: ExpenseDraft): {
+  each: number
+  includesPayer: boolean
+  requestPeople: string[]
+} {
+  const includesPayer = draft.people.some((name) => samePerson(name, draft.payerName))
+  const divisor = Math.max(draft.people.length, 1)
+  const requestPeople = draft.people.filter((name) => !samePerson(name, draft.payerName))
+
+  return {
+    each: Math.round((draft.total / divisor) * 100) / 100,
+    includesPayer,
+    requestPeople: includesPayer ? requestPeople : draft.people,
+  }
+}
+
+function samePerson(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
