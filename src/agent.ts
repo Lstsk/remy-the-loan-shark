@@ -192,7 +192,7 @@ export async function startAgent(): Promise<void> {
           await safeSend(space, reply)
         } catch (error) {
           console.error(error instanceof Error ? error.message : error)
-          await safeSend(space, 'Text me what you paid and who was there. Example: paid $86 dinner with Alex Brian Sam')
+          await safeSend(space, "I hit a hiccup on my side. Send that last bit once more and I'll pick it up.")
         }
       })
     } catch (error) {
