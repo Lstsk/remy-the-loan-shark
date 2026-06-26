@@ -1,9 +1,10 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db, ensureDatabase } from './index.ts'
 import {
   contactAliases,
   contacts,
+  conversationMessages,
   conversationState,
   expenseParticipants,
   expenses,
@@ -14,8 +15,19 @@ import {
 import type { ExpenseDraft, PaymentRequest } from '../tools.ts'
 
 export const defaultOwnerUserId = 'local-payer'
+export const defaultConversationId = 'default'
 
-export interface ContactInput {
+export interface ConversationScope {
+  ownerUserId?: string
+  conversationId?: string
+}
+
+export interface ConversationMessageInput extends ConversationScope {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ContactInput extends ConversationScope {
   ownerUserId?: string
   displayName: string
   alias?: string
@@ -39,14 +51,18 @@ export function normalizeAlias(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-export function ensureDefaultUser(displayName = 'Carson'): typeof users.$inferSelect {
+function normalizeConversationId(value?: string): string {
+  return (value ?? defaultConversationId).trim() || defaultConversationId
+}
+
+export function ensureUser(ownerUserId = defaultOwnerUserId, displayName = 'Carson'): typeof users.$inferSelect {
   ensureDatabase()
-  const existing = db.select().from(users).where(eq(users.id, defaultOwnerUserId)).get()
+  const existing = db.select().from(users).where(eq(users.id, ownerUserId)).get()
   if (existing) return existing
 
   const timestamp = nowIso()
   const user = {
-    id: defaultOwnerUserId,
+    id: ownerUserId,
     displayName,
     phone: null,
     preferredPayoutMethod: null,
@@ -58,10 +74,50 @@ export function ensureDefaultUser(displayName = 'Carson'): typeof users.$inferSe
   return user
 }
 
+export function ensureDefaultUser(displayName = 'Carson'): typeof users.$inferSelect {
+  return ensureUser(defaultOwnerUserId, displayName)
+}
+
+export function saveConversationMessage(input: ConversationMessageInput) {
+  const ownerUserId = input.ownerUserId ?? defaultOwnerUserId
+  const conversationId = normalizeConversationId(input.conversationId)
+  ensureUser(ownerUserId)
+  const message = {
+    id: randomUUID(),
+    ownerUserId,
+    conversationId,
+    role: input.role,
+    content: input.content,
+    createdAt: nowIso(),
+  }
+  db.insert(conversationMessages).values(message).run()
+  return message
+}
+
+export function getRecentConversationMessages(input: ConversationScope & {
+  limit?: number
+} = {}) {
+  const ownerUserId = input.ownerUserId ?? defaultOwnerUserId
+  const conversationId = normalizeConversationId(input.conversationId)
+  ensureUser(ownerUserId)
+  return db
+    .select()
+    .from(conversationMessages)
+    .where(and(
+      eq(conversationMessages.ownerUserId, ownerUserId),
+      eq(conversationMessages.conversationId, conversationId),
+    ))
+    .orderBy(desc(conversationMessages.createdAt), desc(sql`rowid`))
+    .limit(input.limit ?? 10)
+    .all()
+    .reverse()
+}
+
 export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
-  ensureDefaultUser()
   const timestamp = nowIso()
   const ownerUserId = input.ownerUserId ?? defaultOwnerUserId
+  const conversationId = normalizeConversationId(input.conversationId)
+  ensureUser(ownerUserId)
   const alias = input.alias ?? input.displayName
   const normalizedAlias = normalizeAlias(alias)
 
@@ -88,7 +144,7 @@ export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
       })
       .where(eq(contacts.id, existingAlias.contact.id))
       .run()
-    linkContactToOpenParticipants(existingAlias.contact.id, alias, ownerUserId)
+    linkContactToOpenParticipants(existingAlias.contact.id, alias, ownerUserId, conversationId)
     return db.select().from(contacts).where(eq(contacts.id, existingAlias.contact.id)).get()!
   }
 
@@ -125,13 +181,13 @@ export function saveContact(input: ContactInput): typeof contacts.$inferSelect {
     }).onConflictDoNothing().run()
   }
 
-  linkContactToOpenParticipants(contact.id, alias, ownerUserId)
-  linkContactToOpenParticipants(contact.id, input.displayName, ownerUserId)
+  linkContactToOpenParticipants(contact.id, alias, ownerUserId, conversationId)
+  linkContactToOpenParticipants(contact.id, input.displayName, ownerUserId, conversationId)
   return contact
 }
 
 export function resolveContact(alias: string, ownerUserId = defaultOwnerUserId) {
-  ensureDefaultUser()
+  ensureUser(ownerUserId)
   return db
     .select({ contact: contacts, alias: contactAliases })
     .from(contactAliases)
@@ -143,8 +199,13 @@ export function resolveContact(alias: string, ownerUserId = defaultOwnerUserId) 
     .get() ?? null
 }
 
-export function saveExpenseDraft(draft: ExpenseDraft, ownerUserId = defaultOwnerUserId): SavedExpense {
-  ensureDefaultUser(draft.payerName)
+export function saveExpenseDraft(
+  draft: ExpenseDraft,
+  ownerUserId = defaultOwnerUserId,
+  conversationId = defaultConversationId,
+): SavedExpense {
+  conversationId = normalizeConversationId(conversationId)
+  ensureUser(ownerUserId, draft.payerName)
   const timestamp = nowIso()
   const expense = {
     id: randomUUID(),
@@ -185,11 +246,12 @@ export function saveExpenseDraft(draft: ExpenseDraft, ownerUserId = defaultOwner
   db.insert(conversationState).values({
     id: randomUUID(),
     ownerUserId,
+    conversationId,
     currentExpenseId: expense.id,
     lastMessage: null,
     updatedAt: timestamp,
   }).onConflictDoUpdate({
-    target: conversationState.ownerUserId,
+    target: [conversationState.ownerUserId, conversationState.conversationId],
     set: {
       currentExpenseId: expense.id,
       updatedAt: timestamp,
@@ -199,12 +261,19 @@ export function saveExpenseDraft(draft: ExpenseDraft, ownerUserId = defaultOwner
   return { expense, participants }
 }
 
-export function getCurrentExpense(ownerUserId = defaultOwnerUserId): SavedExpense | null {
-  ensureDefaultUser()
+export function getCurrentExpense(
+  ownerUserId = defaultOwnerUserId,
+  conversationId = defaultConversationId,
+): SavedExpense | null {
+  conversationId = normalizeConversationId(conversationId)
+  ensureUser(ownerUserId)
   const current = db
     .select()
     .from(conversationState)
-    .where(eq(conversationState.ownerUserId, ownerUserId))
+    .where(and(
+      eq(conversationState.ownerUserId, ownerUserId),
+      eq(conversationState.conversationId, conversationId),
+    ))
     .get()
   if (!current?.currentExpenseId) return null
 
@@ -220,8 +289,11 @@ export function getCurrentExpense(ownerUserId = defaultOwnerUserId): SavedExpens
   return { expense, participants }
 }
 
-export function getMissingContactsForCurrent(ownerUserId = defaultOwnerUserId): string[] {
-  const current = getCurrentExpense(ownerUserId)
+export function getMissingContactsForCurrent(
+  ownerUserId = defaultOwnerUserId,
+  conversationId = defaultConversationId,
+): string[] {
+  const current = getCurrentExpense(ownerUserId, conversationId)
   if (!current) return []
 
   return current.participants
@@ -230,8 +302,13 @@ export function getMissingContactsForCurrent(ownerUserId = defaultOwnerUserId): 
     .map((participant) => participant.displayName)
 }
 
-function linkContactToOpenParticipants(contactId: string, alias: string, ownerUserId = defaultOwnerUserId): void {
-  const current = getCurrentExpense(ownerUserId)
+function linkContactToOpenParticipants(
+  contactId: string,
+  alias: string,
+  ownerUserId = defaultOwnerUserId,
+  conversationId = defaultConversationId,
+): void {
+  const current = getCurrentExpense(ownerUserId, conversationId)
   if (!current) return
 
   db.update(expenseParticipants)
@@ -247,8 +324,12 @@ function linkContactToOpenParticipants(contactId: string, alias: string, ownerUs
     .run()
 }
 
-export function savePaymentRequestsForCurrent(requests: PaymentRequest[], ownerUserId = defaultOwnerUserId) {
-  const current = getCurrentExpense(ownerUserId)
+export function savePaymentRequestsForCurrent(
+  requests: PaymentRequest[],
+  ownerUserId = defaultOwnerUserId,
+  conversationId = defaultConversationId,
+) {
+  const current = getCurrentExpense(ownerUserId, conversationId)
   if (!current) throw new Error('No current expense')
 
   const timestamp = nowIso()
@@ -375,9 +456,33 @@ export function findPaymentRequest(input: {
   title?: string
   amount?: number
   ownerUserId?: string
+  conversationId?: string
 }) {
   const ownerUserId = input.ownerUserId ?? defaultOwnerUserId
-  const current = getCurrentExpense(ownerUserId)
+
+  if (input.id) {
+    const request = db.select().from(paymentRequests).where(eq(paymentRequests.id, input.id)).get()
+    if (!request) return null
+
+    const expense = db.select().from(expenses).where(eq(expenses.id, request.expenseId)).get()
+    if (!expense) return null
+
+    const participants = db
+      .select()
+      .from(expenseParticipants)
+      .where(eq(expenseParticipants.expenseId, expense.id))
+      .all()
+    const participant = participants.find((candidate) => candidate.id === request.participantId) ?? null
+
+    return {
+      expense,
+      participant,
+      request,
+      participants,
+    }
+  }
+
+  const current = getCurrentExpense(ownerUserId, input.conversationId)
   if (!current) return null
 
   const allRequests = db
@@ -385,19 +490,6 @@ export function findPaymentRequest(input: {
     .from(paymentRequests)
     .where(eq(paymentRequests.expenseId, current.expense.id))
     .all()
-
-  if (input.id) {
-    const request = allRequests.find((candidate) => candidate.id === input.id) ?? null
-    if (!request) return null
-    const participant = current.participants.find((candidate) => candidate.id === request.participantId) ?? null
-
-    return {
-      expense: current.expense,
-      participant,
-      request,
-      participants: current.participants,
-    }
-  }
 
   const normalizedFriend = input.friendName ? normalizeAlias(input.friendName) : null
   const request = allRequests.find((candidate) => {
@@ -423,15 +515,14 @@ export function updatePaymentRequestStatus(input: {
   status: 'paid' | 'disputed' | 'partially_paid' | 'unpaid'
   amount?: number
   ownerUserId?: string
+  conversationId?: string
 }) {
-  const current = getCurrentExpense(input.ownerUserId ?? defaultOwnerUserId)
-  if (!current) return null
-
   const request = findPaymentRequest({
     id: input.id,
     friendName: input.friendName,
     amount: input.amount,
     ownerUserId: input.ownerUserId,
+    conversationId: input.conversationId,
   })
   if (!request) return null
 
@@ -447,16 +538,20 @@ export function updatePaymentRequestStatus(input: {
     .run()
 
   return findPaymentRequest({
-    id: input.id,
+    id: request.request.id,
     friendName: input.friendName,
     amount: input.amount,
     ownerUserId: input.ownerUserId,
+    conversationId: input.conversationId,
   })
 }
 
-export function getStoredState(ownerUserId = defaultOwnerUserId) {
-  ensureDefaultUser()
-  const current = getCurrentExpense(ownerUserId)
+export function getStoredState(
+  ownerUserId = defaultOwnerUserId,
+  conversationId = defaultConversationId,
+) {
+  ensureUser(ownerUserId)
+  const current = getCurrentExpense(ownerUserId, conversationId)
   const requests = current
     ? db.select().from(paymentRequests).where(eq(paymentRequests.expenseId, current.expense.id)).all()
     : []

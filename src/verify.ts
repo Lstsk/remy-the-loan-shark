@@ -13,8 +13,13 @@ import {
   getCurrentSplitForAgent,
   isLocalTestSend,
   isSendConfirmation,
+  reviseCurrentSplitForAgent,
   sendPaymentLinksForCurrentSplit,
 } from './tools.ts'
+import {
+  getRecentConversationMessages,
+  saveConversationMessage,
+} from './db/repository.ts'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -80,6 +85,70 @@ const repeatedAgentSend = sendPaymentLinksForCurrentSplit({
 })
 assert(repeatedAgentSend.facts.requests[0].url === agentSend.facts.requests[0].url, 'agent send tool should reuse existing links')
 
+const memoryOwner = `verify-memory-${Date.now()}`
+for (let index = 0; index < 12; index += 1) {
+  saveConversationMessage({
+    ownerUserId: memoryOwner,
+    conversationId: 'chat-a',
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `msg ${index}`,
+  })
+  await new Promise((resolve) => setTimeout(resolve, 2))
+}
+const recentMessages = getRecentConversationMessages({
+  ownerUserId: memoryOwner,
+  conversationId: 'chat-a',
+  limit: 10,
+})
+assert(recentMessages.length === 10, 'conversation memory should return the last 10 messages')
+assert(recentMessages[0].content === 'msg 2', 'conversation memory should drop older messages')
+assert(recentMessages[9].content === 'msg 11', 'conversation memory should preserve chronological order')
+
+const scopeOwner = `verify-scope-${Date.now()}`
+const scopeA = { ownerUserId: scopeOwner, conversationId: 'chat-a' }
+const scopeB = { ownerUserId: scopeOwner, conversationId: 'chat-b' }
+draftSplitForAgent(expenseDraftSchema.parse({
+  title: 'Dinner',
+  payerName: 'Carson',
+  total: 87,
+  people: ['James'],
+  splitMode: 'equal',
+  confidence: 0.9,
+}), scopeA)
+draftSplitForAgent(expenseDraftSchema.parse({
+  title: 'Coffee',
+  payerName: 'Carson',
+  total: 24,
+  people: ['Alex'],
+  splitMode: 'equal',
+  confidence: 0.9,
+}), scopeB)
+assert(getCurrentSplitForAgent(scopeA).summary.includes('James owes $43.50'), 'scope A should keep James split')
+assert(getCurrentSplitForAgent(scopeB).summary.includes('Alex owes $12.00'), 'scope B should keep Alex split')
+
+const revisionScope = { ownerUserId: scopeOwner, conversationId: 'revision-chat' }
+draftSplitForAgent(expenseDraftSchema.parse({
+  title: 'Expense',
+  payerName: 'Carson',
+  total: 87,
+  people: ['Carson'],
+  splitMode: 'equal',
+  confidence: 0.75,
+}), revisionScope)
+const revised = reviseCurrentSplitForAgent({
+  title: 'Dinner',
+  people: ['Carson', 'James'],
+}, revisionScope)
+assert(revised.nextAction === 'confirm_send', 'revision should move back to confirmation when recipient exists')
+assert(revised.summary.includes('James owes $43.50'), 'revision should recalculate the corrected recipient')
+const revisedSend = sendPaymentLinksForCurrentSplit({
+  ...revisionScope,
+  baseUrl: 'https://remy.test',
+  forceVariant: 'link_preview',
+})
+assert(revisedSend.facts.requests.length === 1, 'revised split should send one request')
+assert(revisedSend.facts.requests[0].amount === 43.5, 'revised split request should be half of 87')
+
 const listener = localServe(createMcpApp().fetch)
 try {
   const client = new Client({ name: 'remy-verify', version: '0.1.0' })
@@ -90,6 +159,7 @@ try {
   const toolNames = tools.tools.map((tool) => tool.name)
   assert(toolNames.includes('run_remy_agent'), 'missing run_remy_agent')
   assert(toolNames.includes('draft_split'), 'missing draft_split')
+  assert(toolNames.includes('revise_current_split'), 'missing revise_current_split')
   assert(toolNames.includes('send_payment_links_for_current_split'), 'missing send_payment_links_for_current_split')
   assert(toolNames.includes('get_current_split_summary'), 'missing get_current_split_summary')
   assert(toolNames.includes('understand_expense_message'), 'missing understand_expense_message')

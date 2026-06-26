@@ -90,9 +90,19 @@ export const paymentRequestEvents = sqliteTable('payment_request_events', {
 export const conversationState = sqliteTable('conversation_state', {
   id: text('id').primaryKey(),
   ownerUserId: text('owner_user_id').notNull().references(() => users.id),
+  conversationId: text('conversation_id').notNull().default('default'),
   currentExpenseId: text('current_expense_id').references(() => expenses.id),
   lastMessage: text('last_message'),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
-  uniqueIndex('conversation_state_owner_idx').on(table.ownerUserId),
+  uniqueIndex('conversation_state_owner_conversation_idx').on(table.ownerUserId, table.conversationId),
 ])
+
+export const conversationMessages = sqliteTable('conversation_messages', {
+  id: text('id').primaryKey(),
+  ownerUserId: text('owner_user_id').notNull().references(() => users.id),
+  conversationId: text('conversation_id').notNull().default('default'),
+  role: text('role').notNull(),
+  content: text('content').notNull(),
+  createdAt: text('created_at').notNull(),
+})

@@ -113,16 +113,33 @@ export function ensureDatabase(): void {
     CREATE TABLE IF NOT EXISTS conversation_state (
       id TEXT PRIMARY KEY,
       owner_user_id TEXT NOT NULL REFERENCES users(id),
+      conversation_id TEXT NOT NULL DEFAULT 'default',
       current_expense_id TEXT REFERENCES expenses(id),
       last_message TEXT,
       updated_at TEXT NOT NULL
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS conversation_state_owner_idx
-      ON conversation_state(owner_user_id);
+    CREATE TABLE IF NOT EXISTS conversation_messages (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL REFERENCES users(id),
+      conversation_id TEXT NOT NULL DEFAULT 'default',
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS conversation_messages_scope_created_idx
+      ON conversation_messages(owner_user_id, conversation_id, created_at);
   `)
 
   ensureColumn('payment_requests', 'ui_variant', "TEXT NOT NULL DEFAULT 'link_preview'")
+  ensureColumn('conversation_state', 'conversation_id', "TEXT NOT NULL DEFAULT 'default'")
+  ensureColumn('conversation_messages', 'conversation_id', "TEXT NOT NULL DEFAULT 'default'")
+  sqlite.exec('DROP INDEX IF EXISTS conversation_state_owner_idx')
+  sqlite.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS conversation_state_owner_conversation_idx
+      ON conversation_state(owner_user_id, conversation_id)
+  `)
 }
 
 function ensureColumn(tableName: string, columnName: string, definition: string): void {

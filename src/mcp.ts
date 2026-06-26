@@ -10,6 +10,8 @@ import {
   expenseDraftSchema,
   getCurrentSplitForAgent,
   getRemyState,
+  reviseCurrentSplitForAgent,
+  reviseSplitSchema,
   runRemyAgent,
   saveFriendContactForAgent,
   sendPaymentLinksForCurrentSplit,
@@ -24,6 +26,11 @@ import {
   updatePaymentRequestStatus,
 } from './db/repository.ts'
 
+const scopeInputSchema = {
+  ownerUserId: z.string().optional(),
+  conversationId: z.string().optional(),
+}
+
 export function createRemyMcpServer(): McpServer {
   const server = new McpServer({
     name: 'remy',
@@ -37,12 +44,13 @@ export function createRemyMcpServer(): McpServer {
       description: 'Look up a saved Remy contact by alias/name.',
       inputSchema: {
         alias: z.string(),
+        ownerUserId: z.string().optional(),
       },
     },
-    async ({ alias }) => ({
+    async ({ alias, ownerUserId }) => ({
       content: [{
         type: 'text',
-        text: JSON.stringify(resolveContact(alias), null, 2),
+        text: JSON.stringify(resolveContact(alias, ownerUserId), null, 2),
       }],
     }),
   )
@@ -53,6 +61,7 @@ export function createRemyMcpServer(): McpServer {
       title: 'Save contact',
       description: 'Save a contact mapping from a shared contact card, phone number, or iMessage handle.',
       inputSchema: {
+        ...scopeInputSchema,
         displayName: z.string(),
         alias: z.string().optional(),
         phone: z.string().optional(),
@@ -75,6 +84,7 @@ export function createRemyMcpServer(): McpServer {
       title: 'Save friend contact',
       description: 'Agent-facing contact tool. Saves a friend contact only when the user shares details or wants direct delivery.',
       inputSchema: {
+        ...scopeInputSchema,
         displayName: z.string(),
         alias: z.string().optional(),
         phone: z.string().optional(),
@@ -97,15 +107,16 @@ export function createRemyMcpServer(): McpServer {
       title: 'Run Remy agent',
       description: 'Let Remy decide naturally whether to chat, ask a follow-up, draft an expense, or create requests.',
       inputSchema: {
+        ...scopeInputSchema,
         text: z.string(),
         payerName: z.string().default('Carson'),
         baseUrl: z.string().url().optional(),
       },
     },
-    async ({ text, payerName, baseUrl }) => ({
+    async ({ text, payerName, baseUrl, ownerUserId, conversationId }) => ({
       content: [{
         type: 'text',
-        text: await runRemyAgent({ text, payerName, baseUrl }),
+        text: await runRemyAgent({ text, payerName, baseUrl, ownerUserId, conversationId }),
       }],
     }),
   )
@@ -132,31 +143,59 @@ export function createRemyMcpServer(): McpServer {
     'draft_split',
     {
       title: 'Draft split',
-      description: 'Agent-facing split tool. Normalizes and stores a split draft, then returns summary, next action, facts, and suggested reply.',
-      inputSchema: expenseDraftSchema.shape,
+      description: 'Agent-facing split tool. Normalizes and stores a split draft, then returns summary, next action, facts, and suggested reply. Example: paid 87 dinner with James -> title Dinner, total 87, payerName Carson, people Carson and James.',
+      inputSchema: {
+        ...expenseDraftSchema.shape,
+        ...scopeInputSchema,
+      },
     },
-    async (draft) => ({
-      content: [{
-        type: 'text',
-        text: JSON.stringify(draftSplitForAgent(expenseDraftSchema.parse(draft)), null, 2),
-      }],
-    }),
+    async (input) => {
+      const { ownerUserId, conversationId, ...draft } = input
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(draftSplitForAgent(expenseDraftSchema.parse(draft), { ownerUserId, conversationId }), null, 2),
+        }],
+      }
+    },
+  )
+
+  server.registerTool(
+    'revise_current_split',
+    {
+      title: 'Revise current split',
+      description: 'Agent-facing revision tool. Use for corrections and follow-ups that rely on the active split. Examples: I meant James -> people Carson and James. Add Sam -> addPeople Sam. Actually 92 -> total 92.',
+      inputSchema: {
+        ...reviseSplitSchema.shape,
+        ...scopeInputSchema,
+      },
+    },
+    async (input) => {
+      const { ownerUserId, conversationId, ...revision } = input
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(reviseCurrentSplitForAgent(reviseSplitSchema.parse(revision), { ownerUserId, conversationId }), null, 2),
+        }],
+      }
+    },
   )
 
   server.registerTool(
     'send_payment_links_for_current_split',
     {
       title: 'Send payment links for current split',
-      description: 'Agent-facing send tool. Creates tracked links for the active split, excludes the payer, records events, and returns a suggested reply.',
+      description: 'Agent-facing send tool. Creates or reuses tracked links for the active split after confirmation, excludes the payer, records events, and returns a suggested reply.',
       inputSchema: {
+        ...scopeInputSchema,
         baseUrl: z.string().url().optional(),
         forceVariant: z.enum(['link_preview', 'image_card', 'conversational_minimal']).optional(),
       },
     },
-    async ({ baseUrl, forceVariant }) => ({
+    async ({ baseUrl, forceVariant, ownerUserId, conversationId }) => ({
       content: [{
         type: 'text',
-        text: JSON.stringify(sendPaymentLinksForCurrentSplit({ baseUrl, forceVariant }), null, 2),
+        text: JSON.stringify(sendPaymentLinksForCurrentSplit({ baseUrl, forceVariant, ownerUserId, conversationId }), null, 2),
       }],
     }),
   )
@@ -166,12 +205,12 @@ export function createRemyMcpServer(): McpServer {
     {
       title: 'Get current split summary',
       description: 'Agent-facing state tool. Returns the active split as summary, next action, suggested reply, facts, and existing requests.',
-      inputSchema: {},
+      inputSchema: scopeInputSchema,
     },
-    async () => ({
+    async ({ ownerUserId, conversationId }) => ({
       content: [{
         type: 'text',
-        text: JSON.stringify(getCurrentSplitForAgent(), null, 2),
+        text: JSON.stringify(getCurrentSplitForAgent({ ownerUserId, conversationId }), null, 2),
       }],
     }),
   )
@@ -182,15 +221,16 @@ export function createRemyMcpServer(): McpServer {
       title: 'Create payment requests',
       description: 'Create shareable payment request messages from an expense draft.',
       inputSchema: {
+        ...scopeInputSchema,
         draft: expenseDraftSchema,
         baseUrl: z.string().url().optional(),
         forceVariant: z.enum(['link_preview', 'image_card', 'conversational_minimal']).optional(),
       },
     },
-    async ({ draft, baseUrl, forceVariant }) => ({
+    async ({ draft, baseUrl, forceVariant, ownerUserId, conversationId }) => ({
       content: [{
         type: 'text',
-        text: JSON.stringify(createPaymentRequests({ draft, baseUrl, forceVariant }), null, 2),
+        text: JSON.stringify(createPaymentRequests({ draft, baseUrl, forceVariant, ownerUserId, conversationId }), null, 2),
       }],
     }),
   )
@@ -200,12 +240,12 @@ export function createRemyMcpServer(): McpServer {
     {
       title: 'Get Remy state',
       description: 'Read the current in-memory Remy draft and payment requests.',
-      inputSchema: {},
+      inputSchema: scopeInputSchema,
     },
-    async () => ({
+    async ({ ownerUserId, conversationId }) => ({
       content: [{
         type: 'text',
-        text: JSON.stringify(getRemyState(), null, 2),
+        text: JSON.stringify(getRemyState({ ownerUserId, conversationId }), null, 2),
       }],
     }),
   )

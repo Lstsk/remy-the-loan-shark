@@ -2,7 +2,7 @@ import { Spectrum } from 'spectrum-ts'
 import { imessage } from 'spectrum-ts/providers/imessage'
 import { loadEnv, publicBaseUrl, requiredEnv } from './env.ts'
 import { runRemyAgent } from './tools.ts'
-import { saveContact } from './db/repository.ts'
+import { defaultConversationId, saveContact } from './db/repository.ts'
 
 function isDroppedUpstream(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
@@ -71,6 +71,25 @@ async function safeSend(space: MessageSpace, content: string): Promise<void> {
   }
 }
 
+function conversationIdFromSpace(space: MessageSpace): string {
+  const candidate = space as unknown as Record<string, unknown>
+  for (const key of ['id', 'spaceId', 'conversationId', 'threadId']) {
+    const value = candidate[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+
+  const nested = candidate.space
+  if (typeof nested === 'object' && nested !== null) {
+    const nestedRecord = nested as Record<string, unknown>
+    for (const key of ['id', 'spaceId', 'conversationId', 'threadId']) {
+      const value = nestedRecord[key]
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+  }
+
+  return defaultConversationId
+}
+
 function displayNameFromContact(content: ContactContent): string | null {
   const formatted = content.name?.formatted?.trim()
   if (formatted) return formatted
@@ -101,6 +120,8 @@ export async function startAgent(): Promise<void> {
     try {
       await safeRead(message)
       await safeResponding(space, async () => {
+        const conversationId = conversationIdFromSpace(space)
+
         if (message.content.type === 'contact') {
           const contactContent = message.content as ContactContent
           const displayName = displayNameFromContact(contactContent)
@@ -117,6 +138,7 @@ export async function startAgent(): Promise<void> {
             alias: displayName?.split(/\s+/)[0] ?? phone,
             phone,
             imessageHandle: phone,
+            conversationId,
             source: 'contact-card',
           })
 
@@ -131,7 +153,12 @@ export async function startAgent(): Promise<void> {
 
         try {
           const text = message.content.text ?? ''
-          const reply = await runRemyAgent({ text, payerName: 'Carson', baseUrl: publicBaseUrl() })
+          const reply = await runRemyAgent({
+            text,
+            payerName: 'Carson',
+            baseUrl: publicBaseUrl(),
+            conversationId,
+          })
           await safeSend(space, reply)
         } catch (error) {
           console.error(error instanceof Error ? error.message : error)

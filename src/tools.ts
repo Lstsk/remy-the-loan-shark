@@ -1,16 +1,21 @@
 import { createDeepSeek } from '@ai-sdk/deepseek'
 import { generateText, Output, stepCountIs, tool } from 'ai'
+import type { ModelMessage } from 'ai'
 import { randomUUID } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { Agent, fetch as undiciFetch } from 'undici'
 import { z } from 'zod'
 import { publicBaseUrl } from './env.ts'
 import {
+  defaultConversationId,
+  defaultOwnerUserId,
   getCurrentExpense,
   getMissingContactsForCurrent,
+  getRecentConversationMessages,
   getStoredState,
   recordPaymentRequestEvent,
   resolveContact,
+  saveConversationMessage,
   saveContact,
   saveExpenseDraft,
   savePaymentRequestsForCurrent,
@@ -23,6 +28,17 @@ export const expenseDraftSchema = z.object({
   people: z.array(z.string().min(1)).min(1),
   splitMode: z.enum(['equal', 'custom', 'itemized']).default('equal'),
   confidence: z.number().min(0).max(1).default(0.8),
+})
+
+export const reviseSplitSchema = z.object({
+  title: z.string().optional(),
+  payerName: z.string().optional(),
+  total: z.number().positive().optional(),
+  people: z.array(z.string().min(1)).optional(),
+  addPeople: z.array(z.string().min(1)).optional(),
+  removePeople: z.array(z.string().min(1)).optional(),
+  splitMode: z.enum(['equal', 'custom', 'itemized']).optional(),
+  confidence: z.number().min(0).max(1).optional(),
 })
 
 export const paymentRequestSchema = z.object({
@@ -40,6 +56,7 @@ const plainTextReplySchema = z.object({
 })
 
 export type ExpenseDraft = z.infer<typeof expenseDraftSchema>
+export type SplitRevision = z.infer<typeof reviseSplitSchema>
 export type PaymentRequest = z.infer<typeof paymentRequestSchema>
 
 export type AgentNextAction =
@@ -76,9 +93,28 @@ export interface AgentToolResult<TFacts> {
   facts: TFacts
 }
 
+export interface AgentScope {
+  ownerUserId?: string
+  conversationId?: string
+}
+
 const state = {
-  currentDraft: null as ExpenseDraft | null,
-  requests: [] as PaymentRequest[],
+  currentDrafts: new Map<string, ExpenseDraft>(),
+  requests: new Map<string, PaymentRequest[]>(),
+}
+
+const conversationMemoryLimit = 10
+
+function scopedOwner(input: AgentScope = {}): string {
+  return input.ownerUserId ?? defaultOwnerUserId
+}
+
+function scopedConversation(input: AgentScope = {}): string {
+  return input.conversationId ?? defaultConversationId
+}
+
+function scopeKey(input: AgentScope = {}): string {
+  return `${scopedOwner(input)}:${scopedConversation(input)}`
 }
 
 const plainTextSystemPrompt = [
@@ -89,13 +125,18 @@ const plainTextSystemPrompt = [
   'Do not use bold, italics, bullets, numbered lists, headings, code fences, block quotes, or markdown links.',
   'Write like a normal iMessage.',
   'Use agent-facing tools for product actions instead of doing split math or contact/payment policy in your own text.',
+  'The last 10 user and assistant messages are included. Use them as conversation memory.',
   'Use draft_split when the user gives enough info to draft a split.',
+  'Use revise_current_split when the user corrects or completes a previous split, like "I meant James", "half of 87", "make it lunch", or "add Sam".',
   'Use get_current_split_summary if the user is referring to an existing split and you need context.',
   'Use send_payment_links_for_current_split after they confirm sending.',
   'Use save_friend_contact only when the user shares contact details or asks for direct delivery.',
   'When a tool returns suggestedReply, use it as the backbone of your answer. You may make it warmer, but do not add extra requirements.',
   'Never block a shareable payment link on contact cards.',
   'Ask one casual follow-up if an expense is missing amount or people.',
+  'Example: user says "paid 87 dinner with James". Call draft_split with title Dinner, total 87, payerName Carson, people Carson and James.',
+  'Example: previous split is $87 with Carson, user says "I meant with James". Call revise_current_split with people Carson and James.',
+  'Example: user says "James needs to pay me half of 87". Call draft_split with total 87, payerName Carson, people Carson and James.',
   'For greetings or random chat, answer normally as Remy and invite them to text what they paid.',
 ].join('\n')
 
@@ -155,6 +196,75 @@ function model() {
   return deepseek(process.env.RECEIPTS_AI_MODEL ?? 'deepseek-chat')
 }
 
+function cleanName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function uniqueNames(names: string[]): string[] {
+  const result: string[] = []
+  for (const name of names.map(cleanName).filter(Boolean)) {
+    if (!result.some((existing) => samePerson(existing, name))) result.push(name)
+  }
+  return result
+}
+
+function normalizeDraftTitle(value: string): string {
+  const title = value.trim().replace(/\s+/g, ' ')
+  if (!title || /^expense$/i.test(title)) return 'Shared expense'
+  return title
+}
+
+function normalizeAgentDraft(draft: ExpenseDraft): ExpenseDraft {
+  const payerName = cleanName(draft.payerName) || 'Carson'
+  const people = uniqueNames(draft.people)
+  const includesPayer = people.some((name) => samePerson(name, payerName))
+  const normalizedPeople = includesPayer ? people : [payerName, ...people]
+
+  return expenseDraftSchema.parse({
+    ...draft,
+    title: normalizeDraftTitle(draft.title),
+    payerName,
+    people: normalizedPeople,
+  })
+}
+
+function rememberUserMessage(text: string, scope: AgentScope): void {
+  saveConversationMessage({
+    ownerUserId: scopedOwner(scope),
+    conversationId: scopedConversation(scope),
+    role: 'user',
+    content: text,
+  })
+}
+
+function rememberAssistantReply(reply: string, scope: AgentScope): string {
+  const plain = enforcePlainTextReply(reply)
+  saveConversationMessage({
+    ownerUserId: scopedOwner(scope),
+    conversationId: scopedConversation(scope),
+    role: 'assistant',
+    content: plain,
+  })
+  return plain
+}
+
+function modelMessagesForScope(scope: AgentScope): ModelMessage[] {
+  return getRecentConversationMessages({
+    ownerUserId: scopedOwner(scope),
+    conversationId: scopedConversation(scope),
+    limit: conversationMemoryLimit,
+  }).map((message) => ({
+    role: message.role === 'assistant' ? 'assistant' : 'user',
+    content: message.content,
+  }))
+}
+
+function currentStateContext(scope: AgentScope): string {
+  const draft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
+  if (!draft) return 'Current active split: none.'
+  return `Current active split: ${formatSplitSummary(buildSplitSummary(draft))}`
+}
+
 export async function understandExpenseMessage(input: {
   text: string
   payerName?: string
@@ -173,23 +283,23 @@ export async function understandExpenseMessage(input: {
     ].join('\n'),
   })
 
-  const draft = expenseDraftSchema.parse(parseJsonObject(text))
+  const draft = normalizeAgentDraft(expenseDraftSchema.parse(parseJsonObject(text)))
   rememberDraft(draft)
   return draft
 }
 
-export function rememberDraft(draft: ExpenseDraft): void {
-  state.currentDraft = draft
-  state.requests = []
-  saveExpenseDraft(draft)
+export function rememberDraft(draft: ExpenseDraft, scope: AgentScope = {}): void {
+  state.currentDrafts.set(scopeKey(scope), draft)
+  state.requests.set(scopeKey(scope), [])
+  saveExpenseDraft(draft, scopedOwner(scope), scopedConversation(scope))
 }
 
-export function draftSplitForAgent(draft: ExpenseDraft): AgentToolResult<{
+export function draftSplitForAgent(draft: ExpenseDraft, scope?: AgentScope): AgentToolResult<{
   draft: ExpenseDraft
   split: SplitSummary
 }> {
-  const parsed = expenseDraftSchema.parse(draft)
-  rememberDraft(parsed)
+  const parsed = normalizeAgentDraft(expenseDraftSchema.parse(draft))
+  rememberDraft(parsed, scope)
   const split = buildSplitSummary(parsed)
 
   return {
@@ -205,12 +315,81 @@ export function draftSplitForAgent(draft: ExpenseDraft): AgentToolResult<{
   }
 }
 
-export function getCurrentSplitForAgent(): AgentToolResult<{
+export function reviseCurrentSplitForAgent(revision: SplitRevision, scope: AgentScope = {}): AgentToolResult<{
+  draft: ExpenseDraft | null
+  split: SplitSummary | null
+  revision: SplitRevision
+}> {
+  const parsedRevision = reviseSplitSchema.parse(revision)
+  const current = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
+  const startingPeople = parsedRevision.people
+    ?? parsedRevision.addPeople
+    ?? []
+
+  if (!current && (!parsedRevision.total || startingPeople.length === 0)) {
+    return {
+      ok: false,
+      action: 'revise_current_split',
+      nextAction: 'collect_split_details',
+      summary: 'No active split draft to revise.',
+      suggestedReply: enforcePlainTextReply('What did you pay, how much was it, and who should split it?'),
+      facts: {
+        draft: null,
+        split: null,
+        revision: parsedRevision,
+      },
+    }
+  }
+
+  const base = current ?? expenseDraftSchema.parse({
+    title: parsedRevision.title ?? 'Shared expense',
+    payerName: parsedRevision.payerName ?? 'Carson',
+    total: parsedRevision.total,
+    people: startingPeople,
+    splitMode: parsedRevision.splitMode ?? 'equal',
+    confidence: parsedRevision.confidence ?? 0.7,
+  })
+
+  let people = parsedRevision.people ? uniqueNames(parsedRevision.people) : uniqueNames(base.people)
+  if (!parsedRevision.people && parsedRevision.addPeople) {
+    people = uniqueNames([...people, ...parsedRevision.addPeople])
+  }
+  if (parsedRevision.removePeople) {
+    people = people.filter((name) => !parsedRevision.removePeople!.some((removed) => samePerson(name, removed)))
+  }
+
+  const draft = normalizeAgentDraft(expenseDraftSchema.parse({
+    ...base,
+    title: parsedRevision.title ?? base.title,
+    payerName: parsedRevision.payerName ?? base.payerName,
+    total: parsedRevision.total ?? base.total,
+    people,
+    splitMode: parsedRevision.splitMode ?? base.splitMode,
+    confidence: parsedRevision.confidence ?? Math.max(base.confidence, 0.82),
+  }))
+  rememberDraft(draft, scope)
+  const split = buildSplitSummary(draft)
+
+  return {
+    ok: true,
+    action: 'revise_current_split',
+    nextAction: split.requestCount > 0 ? 'confirm_send' : 'no_recipients',
+    summary: formatSplitSummary(split),
+    suggestedReply: enforcePlainTextReply(formatDraft(draft)),
+    facts: {
+      draft,
+      split,
+      revision: parsedRevision,
+    },
+  }
+}
+
+export function getCurrentSplitForAgent(scope: AgentScope = {}): AgentToolResult<{
   draft: ExpenseDraft | null
   split: SplitSummary | null
   requests: PaymentRequest[]
 }> {
-  const draft = state.currentDraft ?? draftFromStoredExpense()
+  const draft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
   if (!draft) {
     return {
       ok: false,
@@ -238,7 +417,7 @@ export function getCurrentSplitForAgent(): AgentToolResult<{
     facts: {
       draft,
       split,
-      requests: getCurrentPaymentRequests(),
+      requests: getCurrentPaymentRequests(undefined, scope),
     },
   }
 }
@@ -246,12 +425,15 @@ export function getCurrentSplitForAgent(): AgentToolResult<{
 export function sendPaymentLinksForCurrentSplit(input: {
   baseUrl?: string
   forceVariant?: PaymentRequest['uiVariant']
+  ownerUserId?: string
+  conversationId?: string
 } = {}): AgentToolResult<{
   draft: ExpenseDraft | null
   split: SplitSummary | null
   requests: PaymentRequest[]
 }> {
-  const draft = state.currentDraft ?? draftFromStoredExpense()
+  const scope = { ownerUserId: input.ownerUserId, conversationId: input.conversationId }
+  const draft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
   if (!draft) {
     return {
       ok: false,
@@ -283,7 +465,7 @@ export function sendPaymentLinksForCurrentSplit(input: {
     }
   }
 
-  const existingRequests = getCurrentPaymentRequests(input.baseUrl)
+  const existingRequests = getCurrentPaymentRequests(input.baseUrl, scope)
   if (requestsMatchSplit(existingRequests, split)) {
     return {
       ok: true,
@@ -303,6 +485,8 @@ export function sendPaymentLinksForCurrentSplit(input: {
     draft,
     baseUrl: input.baseUrl,
     forceVariant: input.forceVariant,
+    ownerUserId: input.ownerUserId,
+    conversationId: input.conversationId,
   })
 
   return {
@@ -320,6 +504,8 @@ export function sendPaymentLinksForCurrentSplit(input: {
 }
 
 export function saveFriendContactForAgent(input: {
+  ownerUserId?: string
+  conversationId?: string
   displayName: string
   alias?: string
   phone?: string
@@ -331,6 +517,7 @@ export function saveFriendContactForAgent(input: {
 }> {
   const contact = saveContact({
     ...input,
+    ownerUserId: scopedOwner(input),
     source: 'agent',
   })
 
@@ -350,31 +537,47 @@ export async function runRemyAgent(input: {
   text: string
   payerName?: string
   baseUrl?: string
+  ownerUserId?: string
+  conversationId?: string
 }): Promise<string> {
   const payerName = input.payerName ?? 'Carson'
-  const existingDraft = state.currentDraft ?? draftFromStoredExpense()
+  const scope = {
+    ownerUserId: input.ownerUserId,
+    conversationId: input.conversationId,
+  }
+  rememberUserMessage(input.text, scope)
+
+  const existingDraft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
   if (existingDraft && isSendConfirmation(input.text)) {
-    return enforcePlainTextReply(sendPaymentLinksForCurrentSplit({
+    return rememberAssistantReply(sendPaymentLinksForCurrentSplit({
       baseUrl: input.baseUrl ?? publicBaseUrl(),
-    }).suggestedReply)
+      ownerUserId: input.ownerUserId,
+      conversationId: input.conversationId,
+    }).suggestedReply, scope)
   }
 
   const wantsLocalTestSend = isLocalTestSend(input.text)
   if (wantsLocalTestSend) {
     const draft = existingDraft
     if (!draft) {
-      return enforcePlainTextReply('Send me a split first, then say “test send it here.”')
+      return rememberAssistantReply('Send me a split first, then say “test send it here.”', scope)
     }
 
-    return enforcePlainTextReply(formatTestRequests(createPaymentRequests({
+    return rememberAssistantReply(formatTestRequests(createPaymentRequests({
       draft,
       baseUrl: input.baseUrl ?? publicBaseUrl(),
-    })))
+      ownerUserId: input.ownerUserId,
+      conversationId: input.conversationId,
+    })), scope)
   }
 
   const { output } = await generateText({
     model: model(),
-    system: plainTextSystemPrompt,
+    system: [
+      plainTextSystemPrompt,
+      currentStateContext(scope),
+      `Default payer name: ${payerName}.`,
+    ].join('\n\n'),
     output: Output.object({
       name: 'plain_text_imessage_reply',
       description: 'The final user-visible Remy reply as plain iMessage text. No markdown.',
@@ -383,23 +586,30 @@ export async function runRemyAgent(input: {
     stopWhen: stepCountIs(4),
     tools: {
       draft_split: tool({
-        description: 'Normalize and store a split draft. Use when the user gives amount, what it was for, and who shared it. The tool owns split math, payer handling, and the suggested reply.',
+        description: 'Normalize and store a split draft. Use when the user gives amount plus who shared it, even if title is vague. The tool owns split math, payer handling, and the suggested reply. Examples: "paid 87 dinner with James" -> title Dinner, total 87, payerName Carson, people Carson and James. "James needs to pay half of 87" -> total 87, people Carson and James.',
         inputSchema: expenseDraftSchema.extend({
           payerName: z.string().default(payerName),
         }),
-        execute: async (draft) => draftSplitForAgent(expenseDraftSchema.parse(draft)),
+        execute: async (draft) => draftSplitForAgent(expenseDraftSchema.parse(draft), scope),
+      }),
+      revise_current_split: tool({
+        description: 'Revise the active split when the user corrects or completes prior info. Use conversation memory and current split state. Examples: "I meant with James" -> people Carson and James. "add Sam" -> addPeople Sam. "it was lunch" -> title Lunch. "actually 92" -> total 92.',
+        inputSchema: reviseSplitSchema,
+        execute: async (revision) => reviseCurrentSplitForAgent(revision, scope),
       }),
       send_payment_links_for_current_split: tool({
-        description: 'Create tracked payment links for the active split after the payer confirms. The tool excludes the payer, chooses experiment variants, records events, and returns a suggested reply.',
+        description: 'Create or reuse tracked payment links for the active split after the payer confirms with "yes", "send it", or similar. The tool excludes the payer, chooses experiment variants, records events, and returns a suggested reply.',
         inputSchema: z.object({}),
         execute: async () => sendPaymentLinksForCurrentSplit({
           baseUrl: input.baseUrl ?? publicBaseUrl(),
+          ownerUserId: input.ownerUserId,
+          conversationId: input.conversationId,
         }),
       }),
       get_current_split_summary: tool({
-        description: 'Read the active split in an agent-friendly shape: summary, next action, suggested reply, participants, and existing requests.',
+        description: 'Read the active split before answering ambiguous follow-ups such as "?", "what is this", "yes", or corrections that depend on memory. Returns summary, next action, suggested reply, participants, and existing requests.',
         inputSchema: z.object({}),
-        execute: async () => getCurrentSplitForAgent(),
+        execute: async () => getCurrentSplitForAgent(scope),
       }),
       resolve_contact: tool({
         description: 'Look up whether Remy already knows a friend by name or alias.',
@@ -407,12 +617,12 @@ export async function runRemyAgent(input: {
           alias: z.string(),
         }),
         execute: async ({ alias }) => {
-          const result = resolveContact(alias)
+          const result = resolveContact(alias, scopedOwner(scope))
           return result?.contact ?? { missing: true, alias }
         },
       }),
       save_friend_contact: tool({
-        description: 'Save a friend contact only when the user shares contact details or asks for direct iMessage delivery. Contact cards are not required for shareable payment links.',
+        description: 'Save a friend contact only when the user shares contact details or asks for direct iMessage delivery. Do not call this before making shareable payment links; contact cards are optional.',
         inputSchema: z.object({
           displayName: z.string(),
           alias: z.string().optional(),
@@ -421,16 +631,17 @@ export async function runRemyAgent(input: {
           preferredPayoutMethod: z.string().optional(),
           payoutHandle: z.string().optional(),
         }),
-        execute: async (input) => saveFriendContactForAgent(input),
+        execute: async (input) => saveFriendContactForAgent({
+          ...input,
+          ownerUserId: scopedOwner(scope),
+          conversationId: scopedConversation(scope),
+        }),
       }),
     },
-    prompt: [
-      `Default payer name: ${payerName}.`,
-      `User message: ${input.text}`,
-    ].join('\n'),
+    messages: modelMessagesForScope(scope),
   })
 
-  return enforcePlainTextReply(output.reply)
+  return rememberAssistantReply(output.reply, scope)
 }
 
 export function enforcePlainTextReply(reply: string): string {
@@ -508,8 +719,8 @@ export function formatSentRequests(requests: PaymentRequest[]): string {
   ].join('\n')
 }
 
-function draftFromStoredExpense(): ExpenseDraft | null {
-  const current = getCurrentExpense()
+function draftFromStoredExpense(scope: AgentScope = {}): ExpenseDraft | null {
+  const current = getCurrentExpense(scopedOwner(scope), scopedConversation(scope))
   if (!current || current.participants.length === 0) return null
 
   return expenseDraftSchema.parse({
@@ -547,16 +758,23 @@ export function createPaymentRequests(input: {
   draft: ExpenseDraft
   baseUrl?: string
   forceVariant?: PaymentRequest['uiVariant']
+  ownerUserId?: string
+  conversationId?: string
 }): PaymentRequest[] {
+  const scope = {
+    ownerUserId: input.ownerUserId,
+    conversationId: input.conversationId,
+  }
+  const draft = normalizeAgentDraft(expenseDraftSchema.parse(input.draft))
   const baseUrl = input.baseUrl ?? publicBaseUrl()
-  const split = splitDraft(input.draft)
+  const split = splitDraft(draft)
   const requests = split.requestPeople.map((friendName, index) => {
     const id = randomUUID()
-    const uiVariant = input.forceVariant ?? selectPaymentUiVariant(`${input.draft.title}:${friendName}:${index}`)
+    const uiVariant = input.forceVariant ?? selectPaymentUiVariant(`${draft.title}:${friendName}:${index}`)
     const pay = new URL(`/r/${id}`, baseUrl)
     pay.searchParams.set('friend', friendName.toLowerCase())
     pay.searchParams.set('amount', split.each.toFixed(2))
-    pay.searchParams.set('title', input.draft.title)
+    pay.searchParams.set('title', draft.title)
     const card = new URL(`/card/${id}.svg`, baseUrl)
 
     return paymentRequestSchema.parse({
@@ -567,8 +785,8 @@ export function createPaymentRequests(input: {
       url: pay.toString(),
       cardUrl: card.toString(),
       message: formatPaymentRequestMessage({
-        payerName: input.draft.payerName,
-        title: input.draft.title,
+        payerName: draft.payerName,
+        title: draft.title,
         request: {
           id,
           uiVariant,
@@ -581,20 +799,20 @@ export function createPaymentRequests(input: {
     })
   })
 
-  state.currentDraft = input.draft
-  state.requests = requests
-  const currentExpense = getCurrentExpense()
+  state.currentDrafts.set(scopeKey(scope), draft)
+  state.requests.set(scopeKey(scope), requests)
+  const currentExpense = getCurrentExpense(scopedOwner(scope), scopedConversation(scope))
   const currentPeople = currentExpense?.participants.map((participant) => participant.displayName).sort().join('|')
-  const draftPeople = [...input.draft.people].sort().join('|')
+  const draftPeople = [...draft.people].sort().join('|')
   if (
     !currentExpense ||
-    currentExpense.expense.title !== input.draft.title ||
-    currentExpense.expense.total !== input.draft.total ||
+    currentExpense.expense.title !== draft.title ||
+    currentExpense.expense.total !== draft.total ||
     currentPeople !== draftPeople
   ) {
-    saveExpenseDraft(input.draft)
+    saveExpenseDraft(draft, scopedOwner(scope), scopedConversation(scope))
   }
-  const saved = savePaymentRequestsForCurrent(requests)
+  const saved = savePaymentRequestsForCurrent(requests, scopedOwner(scope), scopedConversation(scope))
   for (const request of saved) {
     recordPaymentRequestEvent({ requestId: request.id, eventType: 'created' })
   }
@@ -661,15 +879,15 @@ function recordMessageRendered(request: PaymentRequest): void {
   recordPaymentRequestEvent({ requestId: request.id, eventType: 'message_rendered' })
 }
 
-export function getRemyState() {
-  const stored = getStoredState()
-  const currentExpense = getCurrentExpense()
+export function getRemyState(scope: AgentScope = {}) {
+  const stored = getStoredState(scopedOwner(scope), scopedConversation(scope))
+  const currentExpense = getCurrentExpense(scopedOwner(scope), scopedConversation(scope))
   return {
-    currentDraft: state.currentDraft,
-    requests: state.requests,
+    currentDraft: state.currentDrafts.get(scopeKey(scope)) ?? null,
+    requests: state.requests.get(scopeKey(scope)) ?? [],
     stored,
     currentExpense,
-    missingContacts: getMissingContactsForCurrent(),
+    missingContacts: getMissingContactsForCurrent(scopedOwner(scope), scopedConversation(scope)),
   }
 }
 
@@ -720,10 +938,11 @@ function buildSplitSummary(draft: ExpenseDraft): SplitSummary {
   }
 }
 
-function getCurrentPaymentRequests(baseUrl?: string): PaymentRequest[] {
-  if (state.requests.length > 0) return state.requests
+function getCurrentPaymentRequests(baseUrl?: string, scope: AgentScope = {}): PaymentRequest[] {
+  const cached = state.requests.get(scopeKey(scope))
+  if (cached && cached.length > 0) return cached
 
-  const stored = getStoredState()
+  const stored = getStoredState(scopedOwner(scope), scopedConversation(scope))
   const requests = stored.requests.map((request) => {
     const card = new URL(`/card/${request.id}.svg`, baseUrl ?? publicBaseUrl())
     return paymentRequestSchema.parse({
@@ -736,7 +955,7 @@ function getCurrentPaymentRequests(baseUrl?: string): PaymentRequest[] {
       message: request.message,
     })
   })
-  state.requests = requests
+  state.requests.set(scopeKey(scope), requests)
   return requests
 }
 
