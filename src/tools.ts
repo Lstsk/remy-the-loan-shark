@@ -175,7 +175,7 @@ export function draftSplitForAgent(draft: ExpenseDraft): AgentToolResult<{
     action: 'draft_split',
     nextAction: split.requestCount > 0 ? 'confirm_send' : 'no_recipients',
     summary: formatSplitSummary(split),
-    suggestedReply: formatDraft(parsed),
+    suggestedReply: enforcePlainTextReply(formatDraft(parsed)),
     facts: {
       draft: parsed,
       split,
@@ -195,7 +195,7 @@ export function getCurrentSplitForAgent(): AgentToolResult<{
       action: 'get_current_split_summary',
       nextAction: 'collect_split_details',
       summary: 'No active split draft.',
-      suggestedReply: 'What did you pay, how much was it, and who shared it?',
+      suggestedReply: enforcePlainTextReply('What did you pay, how much was it, and who shared it?'),
       facts: {
         draft: null,
         split: null,
@@ -211,8 +211,8 @@ export function getCurrentSplitForAgent(): AgentToolResult<{
     nextAction: split.requestCount > 0 ? 'confirm_send' : 'no_recipients',
     summary: formatSplitSummary(split),
     suggestedReply: split.requestCount > 0
-      ? `${formatSplitSummary(split)} Reply yes and I’ll make the payment link${split.requestCount === 1 ? '' : 's'}.`
-      : 'I don’t see anyone else to request from on this split.',
+      ? enforcePlainTextReply(`${formatSplitSummary(split)} Reply yes and I’ll make the payment link${split.requestCount === 1 ? '' : 's'}.`)
+      : enforcePlainTextReply('I don’t see anyone else to request from on this split.'),
     facts: {
       draft,
       split,
@@ -236,7 +236,7 @@ export function sendPaymentLinksForCurrentSplit(input: {
       action: 'send_payment_links_for_current_split',
       nextAction: 'collect_split_details',
       summary: 'No active split draft.',
-      suggestedReply: 'Send me the amount, what it was for, and who shared it first.',
+      suggestedReply: enforcePlainTextReply('Send me the amount, what it was for, and who shared it first.'),
       facts: {
         draft: null,
         split: null,
@@ -252,7 +252,7 @@ export function sendPaymentLinksForCurrentSplit(input: {
       action: 'send_payment_links_for_current_split',
       nextAction: 'no_recipients',
       summary: formatSplitSummary(split),
-      suggestedReply: 'I don’t see anyone else to request from on this split.',
+      suggestedReply: enforcePlainTextReply('I don’t see anyone else to request from on this split.'),
       facts: {
         draft,
         split,
@@ -268,7 +268,7 @@ export function sendPaymentLinksForCurrentSplit(input: {
       action: 'send_payment_links_for_current_split',
       nextAction: 'payment_links_created',
       summary: formatSplitSummary(split),
-      suggestedReply: formatSentRequests(existingRequests),
+      suggestedReply: enforcePlainTextReply(formatSentRequests(existingRequests)),
       facts: {
         draft,
         split,
@@ -288,7 +288,7 @@ export function sendPaymentLinksForCurrentSplit(input: {
     action: 'send_payment_links_for_current_split',
     nextAction: 'payment_links_created',
     summary: formatSplitSummary(split),
-    suggestedReply: formatSentRequests(requests),
+    suggestedReply: enforcePlainTextReply(formatSentRequests(requests)),
     facts: {
       draft,
       split,
@@ -317,7 +317,7 @@ export function saveFriendContactForAgent(input: {
     action: 'save_friend_contact',
     nextAction: 'contact_saved',
     summary: `Saved contact for ${contact.displayName}.`,
-    suggestedReply: `Got ${contact.displayName}. I’ll remember them for next time.`,
+    suggestedReply: enforcePlainTextReply(`Got ${contact.displayName}. I’ll remember them for next time.`),
     facts: {
       contact,
     },
@@ -332,22 +332,22 @@ export async function runRemyAgent(input: {
   const payerName = input.payerName ?? 'Carson'
   const existingDraft = state.currentDraft ?? draftFromStoredExpense()
   if (existingDraft && isSendConfirmation(input.text)) {
-    return sendPaymentLinksForCurrentSplit({
+    return enforcePlainTextReply(sendPaymentLinksForCurrentSplit({
       baseUrl: input.baseUrl ?? publicBaseUrl(),
-    }).suggestedReply
+    }).suggestedReply)
   }
 
   const wantsLocalTestSend = isLocalTestSend(input.text)
   if (wantsLocalTestSend) {
     const draft = existingDraft
     if (!draft) {
-      return 'Send me a split first, then say “test send it here.”'
+      return enforcePlainTextReply('Send me a split first, then say “test send it here.”')
     }
 
-    return formatTestRequests(createPaymentRequests({
+    return enforcePlainTextReply(formatTestRequests(createPaymentRequests({
       draft,
       baseUrl: input.baseUrl ?? publicBaseUrl(),
-    }))
+    })))
   }
 
   const { text } = await generateText({
@@ -399,6 +399,7 @@ export async function runRemyAgent(input: {
     prompt: [
       'You are Remy, an iMessage-first agent that gets friends paid back without making it awkward.',
       'Reply naturally and briefly.',
+      'Use plain text only. No markdown, no bold, no bullets, no numbered lists, no headings, no code fences, no block quotes, no markdown links.',
       'Use agent-facing tools for product actions instead of doing split math or contact/payment policy in your own text.',
       'Use draft_split when the user gives enough info to draft a split.',
       'Use get_current_split_summary if the user is referring to an existing split and you need context.',
@@ -413,7 +414,45 @@ export async function runRemyAgent(input: {
     ].join('\n'),
   })
 
-  return text.trim()
+  return enforcePlainTextReply(text)
+}
+
+export function enforcePlainTextReply(reply: string): string {
+  const unfenced = reply
+    .split('\n')
+    .filter((line) => !/^```/.test(line.trim()))
+    .map((line) => line
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s{0,3}>\s?/, '')
+      .replace(/^\s*[-*+]\s+/, '')
+      .replace(/^\s*\d+[.)]\s+/, '')
+      .trimEnd())
+    .join('\n')
+
+  const urlTokens: string[] = []
+  const withoutMarkdownLinks = unfenced
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1: $2')
+
+  const protectedUrls = withoutMarkdownLinks.replace(/https?:\/\/\S+/g, (url) => {
+    const token = `URLTOKEN${urlTokens.length}TOKEN`
+    urlTokens.push(url)
+    return token
+  })
+
+  const plain = protectedUrls
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/_([^_\n]+)_/g, '$1')
+    .replace(/[*_`]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  return urlTokens.reduce(
+    (text, url, index) => text.replaceAll(`URLTOKEN${index}TOKEN`, url),
+    plain,
+  )
 }
 
 export function isLocalTestSend(text: string): boolean {

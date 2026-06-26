@@ -5,6 +5,7 @@ import { createMcpApp } from './mcp.ts'
 import {
   createPaymentRequests,
   draftSplitForAgent,
+  enforcePlainTextReply,
   expenseDraftSchema,
   formatDraft,
   formatSentRequests,
@@ -36,6 +37,13 @@ assert(isSendConfirmation('Yes'), 'yes should send the current draft')
 assert(formatTestRequests(requests).includes('Test variants ready'), 'test requests should say test variants are ready')
 assert(formatTestRequests(requests).includes('https://remy.test/r'), 'test requests should include tracked pay links')
 assert(formatTestRequests(requests).includes('https://remy.test/card'), 'image-card variant should include card links')
+const plainReply = enforcePlainTextReply([
+  '# Split',
+  '- **James** owes `$43.00`',
+  '[Pay link](https://remy.test/r/abc_def?title=Dinner)',
+].join('\n'))
+assert(!/[#*`\[\]()]/.test(plainReply.replace('https://remy.test/r/abc_def?title=Dinner', '')), 'plain reply should strip markdown')
+assert(plainReply.includes('https://remy.test/r/abc_def?title=Dinner'), 'plain reply should preserve URLs')
 
 const payerIncludedDraft = expenseDraftSchema.parse({
   title: 'Dinner',
