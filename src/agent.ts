@@ -7,12 +7,31 @@ import { defaultConversationId, saveContact } from './db/repository.ts'
 function isDroppedUpstream(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
   const candidate = error as {
+    status?: number
+    code?: string
     grpcCode?: number
     message?: string
     cause?: { code?: number; details?: string; message?: string }
   }
   const text = `${candidate.message ?? ''} ${candidate.cause?.message ?? ''} ${candidate.cause?.details ?? ''}`
   return candidate.grpcCode === 14 || candidate.cause?.code === 14 || /Connection dropped|UNAVAILABLE/i.test(text)
+}
+
+function isRateLimited(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const candidate = error as { status?: number; code?: string; message?: string }
+  return candidate.status === 429 || candidate.code === 'RATE_LIMITED' || /rate limited/i.test(candidate.message ?? '')
+}
+
+function rateLimitDelayMs(error: unknown): number {
+  if (typeof error !== 'object' || error === null) return 60_000
+  const message = String((error as { message?: string }).message ?? '')
+  const match = message.match(/retry after\s+(\d+)s/i)
+  return match ? Math.max(Number(match[1]) * 1000, 5_000) : 60_000
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 type MessageSpace = {
@@ -103,15 +122,26 @@ function displayNameFromContact(content: ContactContent): string | null {
 export async function startAgent(): Promise<void> {
   loadEnv()
 
-  const app = await Spectrum({
-    projectId: requiredEnv('PROJECT_ID'),
-    projectSecret: requiredEnv('PROJECT_SECRET'),
-    providers: [imessage.config()],
-    options: {
-      logLevel: process.env.SPECTRUM_LOG_LEVEL === 'debug' ? 'debug' : 'info',
-    },
-    telemetry: false,
-  })
+  let app: Awaited<ReturnType<typeof Spectrum>>
+  for (;;) {
+    try {
+      app = await Spectrum({
+        projectId: requiredEnv('PROJECT_ID'),
+        projectSecret: requiredEnv('PROJECT_SECRET'),
+        providers: [imessage.config()],
+        options: {
+          logLevel: process.env.SPECTRUM_LOG_LEVEL === 'debug' ? 'debug' : 'info',
+        },
+        telemetry: false,
+      })
+      break
+    } catch (error) {
+      if (!isRateLimited(error)) throw error
+      const delayMs = rateLimitDelayMs(error)
+      console.warn(`Spectrum startup rate limited. Retrying in ${Math.round(delayMs / 1000)}s.`)
+      await sleep(delayMs)
+    }
+  }
 
   console.log('Remy iMessage agent is running.')
   console.log('iMessage provider enabled through Spectrum.')

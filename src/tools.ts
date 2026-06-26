@@ -1,5 +1,5 @@
 import { createDeepSeek } from '@ai-sdk/deepseek'
-import { generateText, Output, stepCountIs, tool } from 'ai'
+import { generateText, stepCountIs, tool } from 'ai'
 import type { ModelMessage } from 'ai'
 import { randomUUID } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
@@ -49,10 +49,6 @@ export const paymentRequestSchema = z.object({
   url: z.string(),
   cardUrl: z.string().optional(),
   message: z.string(),
-})
-
-const plainTextReplySchema = z.object({
-  reply: z.string().describe('Plain iMessage text only. No markdown formatting of any kind.'),
 })
 
 export type ExpenseDraft = z.infer<typeof expenseDraftSchema>
@@ -200,9 +196,16 @@ function cleanName(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
 }
 
+function titleCaseName(value: string): string {
+  return cleanName(value)
+    .split(/\s+/)
+    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1) : part)
+    .join(' ')
+}
+
 function uniqueNames(names: string[]): string[] {
   const result: string[] = []
-  for (const name of names.map(cleanName).filter(Boolean)) {
+  for (const name of names.map(titleCaseName).filter(Boolean)) {
     if (!result.some((existing) => samePerson(existing, name))) result.push(name)
   }
   return result
@@ -263,6 +266,80 @@ function currentStateContext(scope: AgentScope): string {
   const draft = state.currentDrafts.get(scopeKey(scope)) ?? draftFromStoredExpense(scope)
   if (!draft) return 'Current active split: none.'
   return `Current active split: ${formatSplitSummary(buildSplitSummary(draft))}`
+}
+
+function firstNameTokens(value: string): string[] {
+  return value
+    .replace(/\b(total|bucks?|dollars?|usd|for|split|between|among|and|me|myself)\b/gi, ' ')
+    .replace(/\$?\d+(?:\.\d{1,2})?/g, ' ')
+    .split(/[,\s]+/)
+    .map(cleanName)
+    .filter((token) => /^[a-z][a-z.'-]*$/i.test(token))
+}
+
+function stripAmountWords(value: string): string {
+  return value
+    .replace(/\$?\d+(?:\.\d{1,2})?\s*(?:bucks?|dollars?|usd)?/gi, ' ')
+    .replace(/\b(total|for|paid|i|split|bill|was)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function titleFromCasualText(value: string): string {
+  const beforeWith = value.split(/\bwith\b/i)[0] ?? value
+  const title = stripAmountWords(beforeWith)
+    .replace(/^for\s+/i, '')
+    .trim()
+  return title ? title.charAt(0).toUpperCase() + title.slice(1) : 'Shared expense'
+}
+
+function draftFromCasualText(text: string, payerName: string): ExpenseDraft | null {
+  const normalized = text.trim()
+  const halfMatch = normalized.match(/\b([a-z][a-z.'-]*)\s+needs?\s+to\s+pay\s+me\s+half\s+of\s+\$?(\d+(?:\.\d{1,2})?)/i)
+  if (halfMatch) {
+    return expenseDraftSchema.parse({
+      title: 'Shared expense',
+      payerName,
+      total: Number(halfMatch[2]),
+      people: [payerName, cleanName(halfMatch[1])],
+      splitMode: 'equal',
+      confidence: 0.78,
+    })
+  }
+
+  if (!/\bpaid\b/i.test(normalized) || !/\bwith\b/i.test(normalized)) return null
+
+  const amountMatch = normalized.match(/\$?\b(\d+(?:\.\d{1,2})?)\s*(?:bucks?|dollars?|usd)?\b/i)
+  if (!amountMatch) return null
+
+  const withPart = normalized.split(/\bwith\b/i).slice(1).join(' with ')
+  const people = firstNameTokens(withPart)
+  if (people.length === 0) return null
+
+  return expenseDraftSchema.parse({
+    title: titleFromCasualText(normalized),
+    payerName,
+    total: Number(amountMatch[1]),
+    people,
+    splitMode: 'equal',
+    confidence: 0.82,
+  })
+}
+
+function suggestedReplyFromToolResults(toolResults: Array<{ output: unknown }>): string | null {
+  for (const result of [...toolResults].reverse()) {
+    const output = result.output
+    if (
+      typeof output === 'object' &&
+      output !== null &&
+      'suggestedReply' in output &&
+      typeof output.suggestedReply === 'string' &&
+      output.suggestedReply.trim()
+    ) {
+      return enforcePlainTextReply(output.suggestedReply)
+    }
+  }
+  return null
 }
 
 export async function understandExpenseMessage(input: {
@@ -571,18 +648,18 @@ export async function runRemyAgent(input: {
     })), scope)
   }
 
-  const { output } = await generateText({
+  const directDraft = draftFromCasualText(input.text, payerName)
+  if (directDraft) {
+    return rememberAssistantReply(draftSplitForAgent(directDraft, scope).suggestedReply, scope)
+  }
+
+  const result = await generateText({
     model: model(),
     system: [
       plainTextSystemPrompt,
       currentStateContext(scope),
       `Default payer name: ${payerName}.`,
     ].join('\n\n'),
-    output: Output.object({
-      name: 'plain_text_imessage_reply',
-      description: 'The final user-visible Remy reply as plain iMessage text. No markdown.',
-      schema: plainTextReplySchema,
-    }),
     stopWhen: stepCountIs(4),
     tools: {
       draft_split: tool({
@@ -641,7 +718,9 @@ export async function runRemyAgent(input: {
     messages: modelMessagesForScope(scope),
   })
 
-  return rememberAssistantReply(output.reply, scope)
+  const toolReply = suggestedReplyFromToolResults(result.steps.flatMap((step) => step.toolResults))
+  const reply = result.text.trim() ? result.text : toolReply
+  return rememberAssistantReply(reply ?? 'Got it. What did you pay, how much was it, and who shared it?', scope)
 }
 
 export function enforcePlainTextReply(reply: string): string {

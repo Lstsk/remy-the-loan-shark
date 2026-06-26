@@ -14,6 +14,7 @@ import {
   isLocalTestSend,
   isSendConfirmation,
   reviseCurrentSplitForAgent,
+  runRemyAgent,
   sendPaymentLinksForCurrentSplit,
 } from './tools.ts'
 import {
@@ -148,6 +149,17 @@ const revisedSend = sendPaymentLinksForCurrentSplit({
 })
 assert(revisedSend.facts.requests.length === 1, 'revised split should send one request')
 assert(revisedSend.facts.requests[0].amount === 43.5, 'revised split request should be half of 87')
+
+const directScope = { ownerUserId: scopeOwner, conversationId: 'direct-chat' }
+const directReply = await runRemyAgent({
+  ...directScope,
+  text: 'I paid for dinner with james 80 bucks total',
+  payerName: 'Carson',
+  baseUrl: 'https://remy.test',
+})
+assert(directReply.includes('Dinner: $80.00'), 'direct parser should draft the dinner split')
+assert(directReply.includes('James owes $40.00'), 'direct parser should split between payer and James')
+assert(getCurrentSplitForAgent(directScope).summary.includes('James owes $40.00'), 'direct parser should store current split')
 
 const listener = localServe(createMcpApp().fetch)
 try {
