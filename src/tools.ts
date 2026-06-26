@@ -1,5 +1,5 @@
 import { createDeepSeek } from '@ai-sdk/deepseek'
-import { generateText, stepCountIs, tool } from 'ai'
+import { generateText, Output, stepCountIs, tool } from 'ai'
 import { randomUUID } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { Agent, fetch as undiciFetch } from 'undici'
@@ -33,6 +33,10 @@ export const paymentRequestSchema = z.object({
   url: z.string(),
   cardUrl: z.string().optional(),
   message: z.string(),
+})
+
+const plainTextReplySchema = z.object({
+  reply: z.string().describe('Plain iMessage text only. No markdown formatting of any kind.'),
 })
 
 export type ExpenseDraft = z.infer<typeof expenseDraftSchema>
@@ -76,6 +80,24 @@ const state = {
   currentDraft: null as ExpenseDraft | null,
   requests: [] as PaymentRequest[],
 }
+
+const plainTextSystemPrompt = [
+  'You are Remy, an iMessage-first agent that gets friends paid back without making it awkward.',
+  'Reply naturally and briefly.',
+  'You must output plain text only.',
+  'Do not use markdown.',
+  'Do not use bold, italics, bullets, numbered lists, headings, code fences, block quotes, or markdown links.',
+  'Write like a normal iMessage.',
+  'Use agent-facing tools for product actions instead of doing split math or contact/payment policy in your own text.',
+  'Use draft_split when the user gives enough info to draft a split.',
+  'Use get_current_split_summary if the user is referring to an existing split and you need context.',
+  'Use send_payment_links_for_current_split after they confirm sending.',
+  'Use save_friend_contact only when the user shares contact details or asks for direct delivery.',
+  'When a tool returns suggestedReply, use it as the backbone of your answer. You may make it warmer, but do not add extra requirements.',
+  'Never block a shareable payment link on contact cards.',
+  'Ask one casual follow-up if an expense is missing amount or people.',
+  'For greetings or random chat, answer normally as Remy and invite them to text what they paid.',
+].join('\n')
 
 const deepseekHosts = new Set(['api.deepseek.com'])
 const publicDnsResolver = new Resolver()
@@ -350,8 +372,14 @@ export async function runRemyAgent(input: {
     })))
   }
 
-  const { text } = await generateText({
+  const { output } = await generateText({
     model: model(),
+    system: plainTextSystemPrompt,
+    output: Output.object({
+      name: 'plain_text_imessage_reply',
+      description: 'The final user-visible Remy reply as plain iMessage text. No markdown.',
+      schema: plainTextReplySchema,
+    }),
     stopWhen: stepCountIs(4),
     tools: {
       draft_split: tool({
@@ -397,24 +425,12 @@ export async function runRemyAgent(input: {
       }),
     },
     prompt: [
-      'You are Remy, an iMessage-first agent that gets friends paid back without making it awkward.',
-      'Reply naturally and briefly.',
-      'Use plain text only. No markdown, no bold, no bullets, no numbered lists, no headings, no code fences, no block quotes, no markdown links.',
-      'Use agent-facing tools for product actions instead of doing split math or contact/payment policy in your own text.',
-      'Use draft_split when the user gives enough info to draft a split.',
-      'Use get_current_split_summary if the user is referring to an existing split and you need context.',
-      'Use send_payment_links_for_current_split after they confirm sending.',
-      'Use save_friend_contact only when the user shares contact details or asks for direct delivery.',
-      'When a tool returns suggestedReply, use it as the backbone of your answer. You may make it warmer, but do not add extra requirements.',
-      'Never block a shareable payment link on contact cards.',
-      'Ask one casual follow-up if an expense is missing amount or people.',
-      'For greetings or random chat, answer normally as Remy and invite them to text what they paid.',
       `Default payer name: ${payerName}.`,
       `User message: ${input.text}`,
     ].join('\n'),
   })
 
-  return enforcePlainTextReply(text)
+  return enforcePlainTextReply(output.reply)
 }
 
 export function enforcePlainTextReply(reply: string): string {
