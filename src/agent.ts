@@ -1,4 +1,5 @@
-import { Spectrum } from 'spectrum-ts'
+import { Spectrum, attachment } from 'spectrum-ts'
+import type { ContentInput } from 'spectrum-ts'
 import { imessage } from 'spectrum-ts/providers/imessage'
 import { loadEnv, publicBaseUrl, requiredEnv } from './env.ts'
 import { runRemyAgent } from './tools.ts'
@@ -35,7 +36,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 type MessageSpace = {
-  send(content: string): Promise<unknown>
+  send(content: ContentInput): Promise<unknown>
   responding<T>(fn: () => Promise<T>): Promise<T>
 }
 
@@ -73,7 +74,7 @@ async function safeResponding<T>(space: MessageSpace, fn: () => Promise<T>): Pro
   }
 }
 
-async function safeSend(space: MessageSpace, content: string): Promise<void> {
+async function safeSend(space: MessageSpace, content: ContentInput): Promise<void> {
   try {
     await space.send(content)
   } catch (error) {
@@ -87,6 +88,52 @@ async function safeSend(space: MessageSpace, content: string): Promise<void> {
       if (!isDroppedUpstream(retryError)) throw retryError
       console.error('Spectrum upstream dropped while sending after retry; keeping agent alive.')
     }
+  }
+}
+
+function paymentCardImageUrlFromReply(reply: string): URL | null {
+  for (const line of reply.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed.includes('/card/')) continue
+    try {
+      const url = new URL(trimmed)
+      if (!url.pathname.endsWith('.svg') && !url.pathname.endsWith('.png')) continue
+      url.pathname = url.pathname.replace(/\.(svg|png)$/i, '.png')
+      return url
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+function withoutCardUrl(reply: string): string {
+  return reply
+    .split('\n')
+    .filter((line) => !line.trim().includes('/card/'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+async function safeSendReply(space: MessageSpace, reply: string): Promise<void> {
+  const cardUrl = paymentCardImageUrlFromReply(reply)
+  if (!cardUrl) {
+    await safeSend(space, reply)
+    return
+  }
+
+  try {
+    await safeSend(space, attachment(cardUrl, {
+      name: 'remy-payment-card.png',
+      mimeType: 'image/png',
+    }))
+
+    const textReply = withoutCardUrl(reply)
+    if (textReply) await safeSend(space, textReply)
+  } catch (error) {
+    console.warn('Could not send payment card image; falling back to card link.', error)
+    await safeSend(space, reply)
   }
 }
 
@@ -189,7 +236,7 @@ export async function startAgent(): Promise<void> {
             baseUrl: publicBaseUrl(),
             conversationId,
           })
-          await safeSend(space, reply)
+          await safeSendReply(space, reply)
         } catch (error) {
           console.error(error instanceof Error ? error.message : error)
           await safeSend(space, "I hit a hiccup on my side. Send that last bit once more and I'll pick it up.")

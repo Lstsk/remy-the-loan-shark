@@ -184,11 +184,16 @@ try {
   const cardSvg = await cardResponse.text()
   assert(cardSvg.includes('Remy payment card'), 'image-card SVG should include accessible label')
   assert(cardSvg.includes('Payment card ready'), 'image-card SVG should render the polished widget copy')
+  const cardPngResponse = await fetch(`${listener.url}/card/${requestId}.png`)
+  assert(cardPngResponse.ok, 'image-card PNG should render')
+  assert(cardPngResponse.headers.get('content-type')?.includes('image/png'), 'image-card route should serve PNG')
+  const cardPng = new Uint8Array(await cardPngResponse.arrayBuffer())
+  assert(cardPng[0] === 0x89 && cardPng[1] === 0x50 && cardPng[2] === 0x4e && cardPng[3] === 0x47, 'image-card PNG should have a PNG signature')
 
   const idPayResponse = await fetch(`${listener.url}/pay/${requestId}`)
   assert(idPayResponse.ok, 'id pay sheet should render')
   const idPayHtml = await idPayResponse.text()
-  assert(idPayHtml.includes(`property="og:image" content="${listener.url}/card/${requestId}.svg"`), 'pay sheet should expose card metadata')
+  assert(idPayHtml.includes(`property="og:image" content="${listener.url}/card/${requestId}.png"`), 'pay sheet should expose PNG card metadata')
   assert(idPayHtml.includes('Payment widget preview'), 'pay sheet should render the widget preview')
 
   const trackedResponse = await fetch(`${listener.url}/r/${requestId}`)

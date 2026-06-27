@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { Resvg } from '@resvg/resvg-js'
 import { toFetchResponse, toReqRes } from 'fetch-to-node'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -268,7 +269,7 @@ export function createMcpApp(): Hono {
 
   app.get('/card/:file', (c) => {
     const file = c.req.param('file')
-    const id = file.replace(/\.svg$/i, '')
+    const id = file.replace(/\.(svg|png)$/i, '')
     const view = findPaymentRequest({ id })
     if (view) {
       recordPaymentRequestEvent({
@@ -279,9 +280,8 @@ export function createMcpApp(): Hono {
       })
     }
 
-    c.header('Content-Type', 'image/svg+xml; charset=utf-8')
     c.header('Cache-Control', 'no-store')
-    return c.body(renderPaymentCardSvg({
+    const svg = renderPaymentCardSvg({
       friendName: view?.request.friendName ?? 'Friend',
       payerName: view?.expense.payerName ?? 'Carson',
       title: view?.expense.title ?? 'Shared expense',
@@ -289,7 +289,19 @@ export function createMcpApp(): Hono {
       status: view?.request.status ?? 'unpaid',
       paidCount: view?.participants.filter((participant) => participant.status === 'paid').length ?? 0,
       totalCount: view?.participants.length ?? 1,
-    }))
+    })
+
+    if (file.toLowerCase().endsWith('.png')) {
+      return new Response(Buffer.from(renderPaymentCardPng(svg)), {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
+    c.header('Content-Type', 'image/svg+xml; charset=utf-8')
+    return c.body(svg)
   })
 
   app.get('/pay', (c) => {
@@ -314,7 +326,7 @@ export function createMcpApp(): Hono {
         status: participant.status,
       })) ?? [],
       message: view?.request.message,
-      cardUrl: requestId ? new URL(`/card/${requestId}.svg`, baseUrl).toString() : undefined,
+      cardUrl: requestId ? new URL(`/card/${requestId}.png`, baseUrl).toString() : undefined,
       canonicalUrl: requestId ? new URL(`/pay/${requestId}`, baseUrl).toString() : new URL(c.req.raw.url).toString(),
     }))
   })
@@ -350,7 +362,7 @@ export function createMcpApp(): Hono {
         status: participant.status,
       })) ?? [],
       message: view?.request.message,
-      cardUrl: new URL(`/card/${requestId}.svg`, baseUrl).toString(),
+      cardUrl: new URL(`/card/${requestId}.png`, baseUrl).toString(),
       canonicalUrl: new URL(`/pay/${requestId}`, baseUrl).toString(),
     }))
   })
@@ -508,6 +520,15 @@ function renderPaymentCardSvg(input: {
   <text x="150" y="598" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="23" font-weight="520">Open to pay, mark paid, or ask for a review.</text>
   <text x="1032" y="598" text-anchor="end" fill="#8b8b94" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="23" font-weight="650">trymomento.app</text>
 </svg>`
+}
+
+function renderPaymentCardPng(svg: string): Uint8Array {
+  return new Resvg(svg, {
+    fitTo: {
+      mode: 'width',
+      value: 1200,
+    },
+  }).render().asPng()
 }
 
 function renderPaymentSheet(input: {

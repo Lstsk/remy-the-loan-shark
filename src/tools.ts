@@ -750,7 +750,7 @@ export function createPaymentRequests(input: {
     pay.searchParams.set('friend', friendName.toLowerCase())
     pay.searchParams.set('amount', split.each.toFixed(2))
     pay.searchParams.set('title', draft.title)
-    const card = new URL(`/card/${id}.svg`, baseUrl)
+    const card = new URL(`/card/${id}.png`, baseUrl)
 
     return paymentRequestSchema.parse({
       id,
@@ -919,7 +919,7 @@ function getCurrentPaymentRequests(baseUrl?: string, scope: AgentScope = {}): Pa
 
   const stored = getStoredState(scopedOwner(scope), scopedConversation(scope))
   const requests = stored.requests.map((request) => {
-    const card = new URL(`/card/${request.id}.svg`, baseUrl ?? publicBaseUrl())
+    const card = new URL(`/card/${request.id}.png`, baseUrl ?? publicBaseUrl())
     return paymentRequestSchema.parse({
       id: request.id,
       uiVariant: parsePaymentUiVariant(request.uiVariant),
