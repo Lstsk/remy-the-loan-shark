@@ -277,6 +277,37 @@ function suggestedReplyFromToolResults(toolResults: Array<{ output: unknown }>):
   return null
 }
 
+function requiredReplyFromToolResults(toolResults: Array<{ output: unknown }>): string | null {
+  for (const result of [...toolResults].reverse()) {
+    const output = result.output
+    if (
+      typeof output === 'object' &&
+      output !== null &&
+      'action' in output &&
+      output.action === 'send_payment_links_for_current_split' &&
+      'suggestedReply' in output &&
+      typeof output.suggestedReply === 'string' &&
+      output.suggestedReply.trim()
+    ) {
+      return enforcePlainTextReply(output.suggestedReply)
+    }
+  }
+  return null
+}
+
+export function replyFromModelAndTools(
+  modelText: string,
+  toolResults: Array<{ output: unknown }>,
+  fallback = 'Got it. What did you pay, how much was it, and who shared it?',
+): string {
+  const requiredToolReply = requiredReplyFromToolResults(toolResults)
+  if (requiredToolReply) return requiredToolReply
+
+  const toolReply = suggestedReplyFromToolResults(toolResults)
+  if (modelText.trim()) return modelText
+  return toolReply ?? fallback
+}
+
 export function rememberDraft(draft: ExpenseDraft, scope: AgentScope = {}): void {
   state.currentDrafts.set(scopeKey(scope), draft)
   state.requests.set(scopeKey(scope), [])
@@ -601,9 +632,11 @@ export async function runRemyAgent(input: {
     messages: modelMessagesForScope(scope),
   })
 
-  const toolReply = suggestedReplyFromToolResults(result.steps.flatMap((step) => step.toolResults))
-  const reply = result.text.trim() ? result.text : toolReply
-  return rememberAssistantReply(reply ?? 'Got it. What did you pay, how much was it, and who shared it?', scope)
+  const reply = replyFromModelAndTools(
+    result.text,
+    result.steps.flatMap((step) => step.toolResults),
+  )
+  return rememberAssistantReply(reply, scope)
 }
 
 export function enforcePlainTextReply(reply: string): string {

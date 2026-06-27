@@ -11,6 +11,7 @@ import {
   formatSentRequests,
   formatTestRequests,
   getCurrentSplitForAgent,
+  replyFromModelAndTools,
   reviseCurrentSplitForAgent,
   sendPaymentLinksForCurrentSplit,
 } from './tools.ts'
@@ -77,6 +78,10 @@ const agentSend = sendPaymentLinksForCurrentSplit({
 assert(agentSend.nextAction === 'payment_links_created', 'agent send tool should create links')
 assert(agentSend.facts.requests.length === 1, 'agent send tool should only request from James')
 assert(agentSend.suggestedReply.startsWith('Done. Payment card for James: $43.00'), 'agent send tool should suggest a card reply')
+assert(
+  replyFromModelAndTools("Done! Here's the link to send James.", [{ output: agentSend }]).includes('https://remy.test/card'),
+  'payment-link tool reply should preserve the card URL even if the model drops it',
+)
 const repeatedAgentSend = sendPaymentLinksForCurrentSplit({
   baseUrl: 'https://remy.test',
   forceVariant: 'image_card',
