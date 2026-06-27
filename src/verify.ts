@@ -152,6 +152,31 @@ const revisedSend = sendPaymentLinksForCurrentSplit({
 assert(revisedSend.facts.requests.length === 1, 'revised split should send one request')
 assert(revisedSend.facts.requests[0].amount === 43.5, 'revised split request should be half of 87')
 
+const liquidRequests = createPaymentRequests({
+  draft: expenseDraftSchema.parse({
+    title: 'Uber',
+    payerName: 'Carson',
+    total: 42,
+    people: ['Carson', 'Alex'],
+    splitMode: 'equal',
+    confidence: 0.9,
+  }),
+  baseUrl: 'https://remy.test',
+  forceVariant: 'image_card',
+})
+const walletRequests = createPaymentRequests({
+  draft: expenseDraftSchema.parse({
+    title: 'Rent share',
+    payerName: 'Carson',
+    total: 250,
+    people: ['Carson', 'Maya'],
+    splitMode: 'equal',
+    confidence: 0.9,
+  }),
+  baseUrl: 'https://remy.test',
+  forceVariant: 'image_card',
+})
+
 const listener = localServe(createMcpApp().fetch)
 try {
   const client = new Client({ name: 'remy-verify', version: '0.1.0' })
@@ -183,12 +208,24 @@ try {
   assert(cardResponse.headers.get('content-type')?.includes('image/svg+xml'), 'image-card route should serve SVG')
   const cardSvg = await cardResponse.text()
   assert(cardSvg.includes('Remy payment card'), 'image-card SVG should include accessible label')
+  assert(cardSvg.includes('Remy Dinner'), 'dinner expense should use the dinner editorial card template')
   assert(cardSvg.includes('Payment card ready'), 'image-card SVG should render the polished widget copy')
   const cardPngResponse = await fetch(`${listener.url}/card/${requestId}.png`)
   assert(cardPngResponse.ok, 'image-card PNG should render')
   assert(cardPngResponse.headers.get('content-type')?.includes('image/png'), 'image-card route should serve PNG')
   const cardPng = new Uint8Array(await cardPngResponse.arrayBuffer())
   assert(cardPng[0] === 0x89 && cardPng[1] === 0x50 && cardPng[2] === 0x4e && cardPng[3] === 0x47, 'image-card PNG should have a PNG signature')
+  assert(cardPng.length > 40_000, 'image-card PNG should include rendered visual detail, not a tiny blank shell')
+
+  const liquidId = liquidRequests[0].id
+  assert(liquidId, 'liquid template request should have an id')
+  const liquidSvg = await fetch(`${listener.url}/card/${liquidId}.svg`).then((response) => response.text())
+  assert(liquidSvg.includes('Remy Split'), 'generic expense should use the liquid glass card template')
+
+  const walletId = walletRequests[0].id
+  assert(walletId, 'wallet template request should have an id')
+  const walletSvg = await fetch(`${listener.url}/card/${walletId}.svg`).then((response) => response.text())
+  assert(walletSvg.includes('Remy Wallet'), 'rent or high-value expense should use the premium wallet card template')
 
   const idPayResponse = await fetch(`${listener.url}/pay/${requestId}`)
   assert(idPayResponse.ok, 'id pay sheet should render')

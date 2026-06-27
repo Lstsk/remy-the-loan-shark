@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { Resvg } from '@resvg/resvg-js'
 import { toFetchResponse, toReqRes } from 'fetch-to-node'
 import { Hono } from 'hono'
+import { createRequire } from 'node:module'
 import { z } from 'zod'
 import {
   createPaymentRequests,
@@ -25,6 +26,16 @@ import {
   saveContact,
   updatePaymentRequestStatus,
 } from './db/repository.ts'
+
+const require = createRequire(import.meta.url)
+const paymentCardFontFiles = [
+  '@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf',
+  '@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf',
+  '@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf',
+  '@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf',
+  '@expo-google-fonts/inter/800ExtraBold/Inter_800ExtraBold.ttf',
+  '@expo-google-fonts/inter/900Black/Inter_900Black.ttf',
+].map((fontPath) => require.resolve(fontPath))
 
 const scopeInputSchema = {
   ownerUserId: z.string().optional(),
@@ -451,6 +462,8 @@ function escapeHtml(value: string | number | undefined): string {
     .replaceAll("'", '&#39;')
 }
 
+type PaymentCardTemplate = 'liquid_glass' | 'dinner_editorial' | 'premium_wallet'
+
 function renderPaymentCardSvg(input: {
   friendName: string
   payerName: string
@@ -460,6 +473,7 @@ function renderPaymentCardSvg(input: {
   paidCount: number
   totalCount: number
 }): string {
+  const template = selectPaymentCardTemplate(input)
   const statusLabel = input.status === 'paid'
     ? 'Paid'
     : input.status === 'disputed'
@@ -472,20 +486,118 @@ function renderPaymentCardSvg(input: {
       : '#007aff'
   const statusText = `${input.paidCount} of ${input.totalCount} paid`
 
-  const title = escapeHtml(input.title)
-  const payerName = escapeHtml(input.payerName)
-  const friendName = escapeHtml(input.friendName)
+  const title = escapeHtml(compactCardText(input.title, 26))
+  const payerName = escapeHtml(compactCardText(input.payerName, 22))
+  const friendName = escapeHtml(compactCardText(input.friendName, 22))
+  const amount = `$${input.amount.toFixed(2)}`
+  const paidFor = `${payerName} paid for ${title}`
+  const font = 'font-family="Inter, Arial, sans-serif"'
+
+  if (template === 'dinner_editorial') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="Remy payment card">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8f1e6"/>
+      <stop offset="0.58" stop-color="#fffaf3"/>
+      <stop offset="1" stop-color="#e9f4f0"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#f7efe2"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#1769ff"/>
+      <stop offset="1" stop-color="#16a085"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="28" stdDeviation="34" flood-color="#3f2f1f" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <circle cx="986" cy="130" r="148" fill="#d8c0a0" opacity="0.17"/>
+  <circle cx="1000" cy="566" r="210" fill="#d7eee8" opacity="0.55"/>
+  <rect x="96" y="74" width="1008" height="572" rx="58" fill="url(#paper)" stroke="#ffffff" stroke-width="3" filter="url(#shadow)"/>
+  <rect x="146" y="122" width="86" height="86" rx="26" fill="#151316"/>
+  <text x="189" y="179" text-anchor="middle" fill="#fffdf7" ${font} font-size="42" font-weight="850">R</text>
+  <text x="262" y="158" fill="#8d7660" ${font} font-size="23" font-weight="760">Remy Dinner</text>
+  <text x="262" y="204" fill="#211b17" ${font} font-size="38" font-weight="820">${friendName}</text>
+  <rect x="852" y="130" width="182" height="54" rx="27" fill="${statusFill}" fill-opacity="0.13"/>
+  <text x="943" y="166" text-anchor="middle" fill="${statusFill}" ${font} font-size="22" font-weight="820">${escapeHtml(statusLabel)}</text>
+
+  <text x="150" y="360" fill="#181514" ${font} font-size="126" font-weight="900">${amount}</text>
+  <text x="156" y="424" fill="#6e5d4d" ${font} font-size="31" font-weight="600">${paidFor}</text>
+  <line x1="154" y1="496" x2="620" y2="496" stroke="#dfd1bd" stroke-width="3"/>
+  <text x="154" y="552" fill="#2a211d" ${font} font-size="29" font-weight="780">Payment card ready</text>
+  <text x="154" y="592" fill="#806d5b" ${font} font-size="23" font-weight="560">A clean link for settling up after the meal.</text>
+
+  <rect x="738" y="282" width="306" height="206" rx="36" fill="#ffffff" fill-opacity="0.72" stroke="#ffffff"/>
+  <text x="776" y="336" fill="#8d7660" ${font} font-size="22" font-weight="760">split status</text>
+  <text x="776" y="384" fill="#211b17" ${font} font-size="40" font-weight="850">${escapeHtml(statusText)}</text>
+  <rect x="776" y="418" width="224" height="16" rx="8" fill="#e7ddd0"/>
+  <rect x="776" y="418" width="${progressWidth(input)}" height="16" rx="8" fill="url(#accent)"/>
+  <rect x="776" y="462" width="170" height="40" rx="20" fill="#1769ff" fill-opacity="0.12"/>
+  <text x="861" y="489" text-anchor="middle" fill="#1769ff" ${font} font-size="20" font-weight="820">tap to pay</text>
+  <text x="1038" y="596" text-anchor="end" fill="#9b8a78" ${font} font-size="22" font-weight="700">trymomento.app</text>
+</svg>`
+  }
+
+  if (template === 'premium_wallet') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="Remy payment card">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#06151d"/>
+      <stop offset="0.48" stop-color="#0d2733"/>
+      <stop offset="1" stop-color="#103f3a"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#182d37"/>
+      <stop offset="0.58" stop-color="#0e202a"/>
+      <stop offset="1" stop-color="#0b171f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2d8cff"/>
+      <stop offset="1" stop-color="#22d3a6"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="34" stdDeviation="40" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <circle cx="1040" cy="126" r="220" fill="#22d3a6" opacity="0.13"/>
+  <circle cx="164" cy="612" r="280" fill="#2d8cff" opacity="0.11"/>
+  <rect x="96" y="76" width="1008" height="568" rx="58" fill="url(#card)" stroke="#33515c" filter="url(#shadow)"/>
+  <rect x="146" y="126" width="88" height="88" rx="28" fill="#f6fbff"/>
+  <text x="190" y="184" text-anchor="middle" fill="#0a171f" ${font} font-size="42" font-weight="900">R</text>
+  <text x="264" y="160" fill="#99b5bf" ${font} font-size="23" font-weight="760">Remy Wallet</text>
+  <text x="264" y="207" fill="#ffffff" ${font} font-size="39" font-weight="850">${friendName}</text>
+  <rect x="842" y="132" width="196" height="56" rx="28" fill="#22d3a6" fill-opacity="0.14"/>
+  <text x="940" y="169" text-anchor="middle" fill="#7ef5d0" ${font} font-size="22" font-weight="820">${escapeHtml(statusLabel)}</text>
+
+  <text x="150" y="366" fill="#ffffff" ${font} font-size="126" font-weight="900">${amount}</text>
+  <text x="156" y="430" fill="#a9c1ca" ${font} font-size="31" font-weight="600">${paidFor}</text>
+  <rect x="154" y="504" width="286" height="54" rx="27" fill="url(#accent)"/>
+  <text x="297" y="540" text-anchor="middle" fill="#ffffff" ${font} font-size="22" font-weight="850">secure pay link</text>
+  <text x="156" y="600" fill="#7e9ba6" ${font} font-size="23" font-weight="580">Built for bigger balances and recurring shares.</text>
+
+  <rect x="730" y="270" width="316" height="226" rx="38" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.12"/>
+  <text x="770" y="328" fill="#89a6b0" ${font} font-size="22" font-weight="760">split status</text>
+  <text x="770" y="378" fill="#ffffff" ${font} font-size="40" font-weight="850">${escapeHtml(statusText)}</text>
+  <rect x="770" y="414" width="224" height="16" rx="8" fill="#29424c"/>
+  <rect x="770" y="414" width="${progressWidth(input)}" height="16" rx="8" fill="url(#accent)"/>
+  <text x="1038" y="596" text-anchor="end" fill="#77949d" ${font} font-size="22" font-weight="720">trymomento.app</text>
+</svg>`
+  }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="Remy payment card">
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#fbfbfd"/>
-      <stop offset="0.54" stop-color="#eef7f5"/>
-      <stop offset="1" stop-color="#f6f1e8"/>
+      <stop offset="0" stop-color="#f7fbff"/>
+      <stop offset="0.48" stop-color="#edf7f5"/>
+      <stop offset="1" stop-color="#fbf4e8"/>
     </linearGradient>
     <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.96"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.68"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.58"/>
     </linearGradient>
     <linearGradient id="pay" x1="0" x2="1" y1="0" y2="0">
       <stop offset="0" stop-color="#007aff"/>
@@ -494,36 +606,68 @@ function renderPaymentCardSvg(input: {
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="30" stdDeviation="36" flood-color="#15151a" flood-opacity="0.18"/>
     </filter>
+    <filter id="glassBlur" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="0.4"/>
+    </filter>
   </defs>
   <rect width="1200" height="720" fill="url(#bg)"/>
+  <circle cx="1010" cy="92" r="220" fill="#9bd8ff" opacity="0.18"/>
+  <circle cx="1020" cy="642" r="270" fill="#e7d2a9" opacity="0.18"/>
   <rect x="104" y="78" width="992" height="564" rx="54" fill="url(#card)" stroke="#ffffff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="124" y="98" width="952" height="524" rx="44" fill="#ffffff" opacity="0.18" filter="url(#glassBlur)"/>
   <rect x="150" y="126" width="84" height="84" rx="24" fill="#111115"/>
-  <text x="192" y="182" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="42" font-weight="800">R</text>
-  <text x="260" y="164" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="700">Remy Split</text>
-  <text x="260" y="206" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="36" font-weight="760">${friendName}</text>
+  <text x="192" y="182" text-anchor="middle" fill="#ffffff" ${font} font-size="42" font-weight="850">R</text>
+  <text x="260" y="164" fill="#6d6d75" ${font} font-size="24" font-weight="760">Remy Split</text>
+  <text x="260" y="206" fill="#15151a" ${font} font-size="36" font-weight="820">${friendName}</text>
   <rect x="852" y="136" width="178" height="52" rx="26" fill="${statusFill}" fill-opacity="0.12"/>
-  <text x="941" y="171" text-anchor="middle" fill="${statusFill}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" font-weight="760">${escapeHtml(statusLabel)}</text>
+  <text x="941" y="171" text-anchor="middle" fill="${statusFill}" ${font} font-size="22" font-weight="820">${escapeHtml(statusLabel)}</text>
 
-  <text x="150" y="360" fill="#111115" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="124" font-weight="790">$${input.amount.toFixed(2)}</text>
-  <text x="156" y="420" fill="#5f6068" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="31" font-weight="560">${payerName} paid for ${title}</text>
+  <text x="150" y="360" fill="#111115" ${font} font-size="124" font-weight="900">${amount}</text>
+  <text x="156" y="420" fill="#5f6068" ${font} font-size="31" font-weight="600">${paidFor}</text>
 
   <rect x="730" y="260" width="300" height="222" rx="34" fill="#ffffff" fill-opacity="0.76" stroke="#ffffff"/>
-  <text x="768" y="316" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" font-weight="700">split status</text>
-  <text x="768" y="364" fill="#111115" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="42" font-weight="780">${escapeHtml(statusText)}</text>
+  <text x="768" y="316" fill="#6d6d75" ${font} font-size="22" font-weight="760">split status</text>
+  <text x="768" y="364" fill="#111115" ${font} font-size="42" font-weight="850">${escapeHtml(statusText)}</text>
   <rect x="768" y="398" width="224" height="16" rx="8" fill="#e5e5ea"/>
-  <rect x="768" y="398" width="${Math.max(24, Math.min(224, 224 * input.paidCount / Math.max(input.totalCount, 1)))}" height="16" rx="8" fill="url(#pay)"/>
+  <rect x="768" y="398" width="${progressWidth(input)}" height="16" rx="8" fill="url(#pay)"/>
   <rect x="768" y="438" width="170" height="38" rx="19" fill="#007aff" fill-opacity="0.12"/>
-  <text x="853" y="464" text-anchor="middle" fill="#007aff" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="760">tap to pay</text>
+  <text x="853" y="464" text-anchor="middle" fill="#007aff" ${font} font-size="20" font-weight="820">tap to pay</text>
 
   <line x1="150" y1="500" x2="674" y2="500" stroke="#e1e1e7" stroke-width="2"/>
-  <text x="150" y="558" fill="#15151a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="28" font-weight="720">Payment card ready</text>
-  <text x="150" y="598" fill="#6d6d75" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="23" font-weight="520">Open to pay, mark paid, or ask for a review.</text>
-  <text x="1032" y="598" text-anchor="end" fill="#8b8b94" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="23" font-weight="650">trymomento.app</text>
+  <text x="150" y="558" fill="#15151a" ${font} font-size="28" font-weight="780">Payment card ready</text>
+  <text x="150" y="598" fill="#6d6d75" ${font} font-size="23" font-weight="560">Open to pay, mark paid, or ask for a review.</text>
+  <text x="1032" y="598" text-anchor="end" fill="#8b8b94" ${font} font-size="23" font-weight="700">trymomento.app</text>
 </svg>`
+}
+
+function compactCardText(value: string, maxLength: number): string {
+  const trimmed = value.trim()
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength - 3)}...` : trimmed
+}
+
+function progressWidth(input: { paidCount: number; totalCount: number }): number {
+  return Math.max(24, Math.min(224, 224 * input.paidCount / Math.max(input.totalCount, 1)))
+}
+
+function selectPaymentCardTemplate(input: { title: string; amount: number }): PaymentCardTemplate {
+  const title = input.title.toLowerCase()
+  if (/\b(dinner|lunch|brunch|drink|drinks|bar|restaurant|meal|coffee|pizza|taco|sushi)\b/.test(title)) {
+    return 'dinner_editorial'
+  }
+  if (input.amount >= 100 || /\b(rent|utility|utilities|travel|trip|hotel|flight|ticket|deposit)\b/.test(title)) {
+    return 'premium_wallet'
+  }
+  return 'liquid_glass'
 }
 
 function renderPaymentCardPng(svg: string): Uint8Array {
   return new Resvg(svg, {
+    font: {
+      fontFiles: paymentCardFontFiles,
+      loadSystemFonts: false,
+      defaultFontFamily: 'Inter',
+      sansSerifFamily: 'Inter',
+    },
     fitTo: {
       mode: 'width',
       value: 1200,
