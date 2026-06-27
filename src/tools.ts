@@ -1,7 +1,7 @@
 import { createDeepSeek } from '@ai-sdk/deepseek'
 import { generateText, stepCountIs, tool } from 'ai'
 import type { ModelMessage } from 'ai'
-import { randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { Resolver } from 'node:dns/promises'
 import { Agent, fetch as undiciFetch } from 'undici'
 import { z } from 'zod'
@@ -698,7 +698,7 @@ export function formatSentRequests(requests: PaymentRequest[]): string {
       return [
         `Done. Payment card for ${request.friendName}: $${request.amount.toFixed(2)}`,
         request.cardUrl,
-        `Pay: ${request.url}`,
+        `Send this link: ${request.url}`,
       ].join('\n')
     }
 
@@ -710,7 +710,7 @@ export function formatSentRequests(requests: PaymentRequest[]): string {
     ...requests.map((request) => [
       `${request.friendName}: $${request.amount.toFixed(2)}`,
       request.cardUrl ?? request.url,
-      request.cardUrl ? `Pay: ${request.url}` : undefined,
+      request.cardUrl ? `Send this link: ${request.url}` : undefined,
     ].filter(Boolean).join('\n')),
   ].join('\n')
 }
@@ -744,12 +744,9 @@ export function createPaymentRequests(input: {
   const baseUrl = input.baseUrl ?? publicBaseUrl()
   const split = splitDraft(draft)
   const requests = split.requestPeople.map((friendName, index) => {
-    const id = randomUUID()
+    const id = createShortPaymentRequestId()
     const uiVariant = input.forceVariant ?? selectPaymentUiVariant(`${draft.title}:${friendName}:${index}`)
     const pay = new URL(`/r/${id}`, baseUrl)
-    pay.searchParams.set('friend', friendName.toLowerCase())
-    pay.searchParams.set('amount', split.each.toFixed(2))
-    pay.searchParams.set('title', draft.title)
     const card = new URL(`/card/${id}.png`, baseUrl)
 
     return paymentRequestSchema.parse({
@@ -794,6 +791,10 @@ export function createPaymentRequests(input: {
   return requests
 }
 
+function createShortPaymentRequestId(): string {
+  return randomBytes(9).toString('base64url')
+}
+
 export function selectPaymentUiVariant(seed: string): PaymentRequest['uiVariant'] {
   const forced = process.env.REMY_PAYMENT_UI_VARIANT
   if (forced === 'link_preview' || forced === 'image_card' || forced === 'conversational_minimal') {
@@ -812,12 +813,12 @@ export function formatPaymentRequestForChat(request: PaymentRequest): string {
     return [
       `${request.friendName}, your share is $${request.amount.toFixed(2)}.`,
       request.cardUrl,
-      `Pay: ${request.url}`,
+      `Open this link: ${request.url}`,
     ].join('\n')
   }
 
   if (request.uiVariant === 'conversational_minimal') {
-    return `${request.friendName}: $${request.amount.toFixed(2)}. Pay here: ${request.url}`
+    return `${request.friendName}: $${request.amount.toFixed(2)}. ${request.url}`
   }
 
   return [
@@ -836,17 +837,17 @@ function formatPaymentRequestMessage(input: {
     return [
       input.request.cardUrl,
       `${input.request.friendName}, ${input.payerName} paid for ${input.title.toLowerCase()}.`,
-      `Your share is $${amount}. Pay here: ${input.request.url}`,
+      `Your share is $${amount}. Open this link: ${input.request.url}`,
       '',
       'powered by Remy',
     ].join('\n')
   }
 
   if (input.request.uiVariant === 'conversational_minimal') {
-    return `${input.request.friendName}, your share is $${amount} for ${input.title.toLowerCase()}. Pay here: ${input.request.url}`
+    return `${input.request.friendName}, your share is $${amount} for ${input.title.toLowerCase()}. ${input.request.url}`
   }
 
-  return `${input.payerName} paid for ${input.title.toLowerCase()}. You owe $${amount}. Pay here: ${input.request.url}\n\npowered by Remy`
+  return `${input.payerName} paid for ${input.title.toLowerCase()}. You owe $${amount}. ${input.request.url}\n\npowered by Remy`
 }
 
 function recordMessageRendered(request: PaymentRequest): void {

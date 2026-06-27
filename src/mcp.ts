@@ -478,7 +478,7 @@ function renderPaymentCardSvg(input: {
     ? 'Paid'
     : input.status === 'disputed'
       ? 'Needs review'
-      : 'Ready to pay'
+      : 'Request ready'
   const statusFill = input.status === 'paid'
     ? '#1f9d61'
     : input.status === 'disputed'
@@ -527,16 +527,14 @@ function renderPaymentCardSvg(input: {
   <text x="150" y="360" fill="#181514" ${font} font-size="126" font-weight="900">${amount}</text>
   <text x="156" y="424" fill="#6e5d4d" ${font} font-size="31" font-weight="600">${paidFor}</text>
   <line x1="154" y1="496" x2="620" y2="496" stroke="#dfd1bd" stroke-width="3"/>
-  <text x="154" y="552" fill="#2a211d" ${font} font-size="29" font-weight="780">Payment card ready</text>
-  <text x="154" y="592" fill="#806d5b" ${font} font-size="23" font-weight="560">A clean link for settling up after the meal.</text>
+  <text x="154" y="552" fill="#2a211d" ${font} font-size="29" font-weight="780">Request card ready</text>
+  <text x="154" y="592" fill="#806d5b" ${font} font-size="23" font-weight="560">Use the short link below to settle up.</text>
 
   <rect x="738" y="282" width="306" height="206" rx="36" fill="#ffffff" fill-opacity="0.72" stroke="#ffffff"/>
   <text x="776" y="336" fill="#8d7660" ${font} font-size="22" font-weight="760">split status</text>
   <text x="776" y="384" fill="#211b17" ${font} font-size="40" font-weight="850">${escapeHtml(statusText)}</text>
   <rect x="776" y="418" width="224" height="16" rx="8" fill="#e7ddd0"/>
   <rect x="776" y="418" width="${progressWidth(input)}" height="16" rx="8" fill="url(#accent)"/>
-  <rect x="776" y="462" width="170" height="40" rx="20" fill="#1769ff" fill-opacity="0.12"/>
-  <text x="861" y="489" text-anchor="middle" fill="#1769ff" ${font} font-size="20" font-weight="820">tap to pay</text>
   <text x="1038" y="596" text-anchor="end" fill="#9b8a78" ${font} font-size="22" font-weight="700">trymomento.app</text>
 </svg>`
   }
@@ -576,8 +574,8 @@ function renderPaymentCardSvg(input: {
   <text x="150" y="366" fill="#ffffff" ${font} font-size="126" font-weight="900">${amount}</text>
   <text x="156" y="430" fill="#a9c1ca" ${font} font-size="31" font-weight="600">${paidFor}</text>
   <rect x="154" y="504" width="286" height="54" rx="27" fill="url(#accent)"/>
-  <text x="297" y="540" text-anchor="middle" fill="#ffffff" ${font} font-size="22" font-weight="850">secure pay link</text>
-  <text x="156" y="600" fill="#7e9ba6" ${font} font-size="23" font-weight="580">Built for bigger balances and recurring shares.</text>
+  <text x="297" y="540" text-anchor="middle" fill="#ffffff" ${font} font-size="22" font-weight="850">link in chat</text>
+  <text x="156" y="600" fill="#7e9ba6" ${font} font-size="23" font-weight="580">Open the short link sent with this card.</text>
 
   <rect x="730" y="270" width="316" height="226" rx="38" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.12"/>
   <text x="770" y="328" fill="#89a6b0" ${font} font-size="22" font-weight="760">split status</text>
@@ -630,12 +628,9 @@ function renderPaymentCardSvg(input: {
   <text x="768" y="364" fill="#111115" ${font} font-size="42" font-weight="850">${escapeHtml(statusText)}</text>
   <rect x="768" y="398" width="224" height="16" rx="8" fill="#e5e5ea"/>
   <rect x="768" y="398" width="${progressWidth(input)}" height="16" rx="8" fill="url(#pay)"/>
-  <rect x="768" y="438" width="170" height="38" rx="19" fill="#007aff" fill-opacity="0.12"/>
-  <text x="853" y="464" text-anchor="middle" fill="#007aff" ${font} font-size="20" font-weight="820">tap to pay</text>
-
   <line x1="150" y1="500" x2="674" y2="500" stroke="#e1e1e7" stroke-width="2"/>
-  <text x="150" y="558" fill="#15151a" ${font} font-size="28" font-weight="780">Payment card ready</text>
-  <text x="150" y="598" fill="#6d6d75" ${font} font-size="23" font-weight="560">Open to pay, mark paid, or ask for a review.</text>
+  <text x="150" y="558" fill="#15151a" ${font} font-size="28" font-weight="780">Request card ready</text>
+  <text x="150" y="598" fill="#6d6d75" ${font} font-size="23" font-weight="560">Use the short link below to open payment.</text>
   <text x="1032" y="598" text-anchor="end" fill="#8b8b94" ${font} font-size="23" font-weight="700">trymomento.app</text>
 </svg>`
 }
